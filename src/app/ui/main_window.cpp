@@ -501,6 +501,7 @@ void MainWindow::configureWorkspaceLayout()
   const auto& pref = Preferences::instance();
   bool normal = (m_mode == NormalMode);
   bool isDoc = (getDocView() != nullptr);
+  bool isStageViewShown = (getStageView() != nullptr && getStageView()->isVisible());
 
   m_menuBar->setVisible(normal);
   m_tabsBar->setVisible(normal);
@@ -531,9 +532,12 @@ void MainWindow::configureWorkspaceLayout()
 
     timelineSplitter()->setAlign(align);
     timelinePlaceholder()->setVisible(
-      isDoc &&
-      (m_mode == NormalMode ||
-       m_mode == ContextBarAndTimelineMode) &&
+      (
+        isDoc &&
+          (m_mode == NormalMode ||
+           m_mode == ContextBarAndTimelineMode)
+        || isStageViewShown
+      ) &&
       pref.general.visibleTimeline());
 
     bool invertSplitterPos = false;

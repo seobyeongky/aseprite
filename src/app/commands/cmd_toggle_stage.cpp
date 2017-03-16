@@ -7,6 +7,7 @@
 #include "app/context.h"
 #include "app/ui/main_window.h"
 #include "app/ui/stage_view.h"
+#include "app/ui/workspace.h"
 
 namespace app {
 
@@ -45,7 +46,15 @@ bool ToggleStageCommand::onChecked(Context* context)
 
 void ToggleStageCommand::onExecute(Context* context)
 {
-  App::instance()->mainWindow()->showStage();
+  auto stageView = App::instance()->mainWindow()->getStageView();
+  if (stageView && stageView->isVisible())
+  {
+    App::instance()->workspace()->closeView(stageView, false);
+  }
+  else
+  {
+    App::instance()->mainWindow()->showStage();
+  }
 }
 
 Command* CommandFactory::createToggleStageCommand()
