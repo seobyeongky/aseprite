@@ -54,7 +54,7 @@
 #include "she/system.h"
 #include "ui/scroll_helper.h"
 #include "ui/ui.h"
-#include "app/ui/stage_view.h"
+#include "app/ui/stage_editor.h"
 #include "app/ui/playable.h"
 
 #include <cstdio>
@@ -262,13 +262,13 @@ void Timeline::updateUsingEditor(Editor* editor)
   showCurrentCel();
 }
 
-void Timeline::updateUsingStageView(StageView* stageView)
+void Timeline::updateUsingStageEditor(StageEditor* stageEditor)
 {
-  m_playable = stageView;
+  m_playable = stageEditor;
 
   m_aniControls.updateUsingPlayable(m_playable);
 
-  m_document = stageView->getDoc();
+  m_document = stageEditor->getDoc();
   m_sprite = m_document->sprite();
   m_layer = m_sprite->firstBrowsableLayer();
   m_frame = 0;

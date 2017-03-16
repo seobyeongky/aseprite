@@ -1,5 +1,6 @@
 <!-- Aseprite -->
 <gui>
   <vbox noborders="true" id="stage_view" border="4" childspacing="2" expansive="true">
+    <view id="stage_editor_view" noborders="true" expansive="true"/>
   </vbox>
 </gui>

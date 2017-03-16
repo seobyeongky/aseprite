@@ -52,7 +52,7 @@ namespace app {
   class Context;
   class Document;
   class Editor;
-  class StageView;
+  class StageEditor;
 
   class Timeline : public ui::Widget
                  , public ui::ScrollableViewDelegate
@@ -81,7 +81,7 @@ namespace app {
     ~Timeline();
 
     void updateUsingEditor(Editor* editor);
-    void updateUsingStageView(StageView* stageView);
+    void updateUsingStageEditor(StageEditor* stageEditor);
 
     Sprite* sprite() { return m_sprite; }
     Layer* getLayer() { return m_layer; }

@@ -15,6 +15,7 @@
 #include "app/ui/playable.h"
 #include "ui/box.h"
 #include "app/pref/preferences.h"
+#include "app/ui/editor/editor_state.h"
 
 #include "stage_view.xml.h"
 
@@ -28,17 +29,17 @@ namespace doc{
 namespace app {
   using namespace doc;
 
+  class StageEditor;
+
   class StageView : public gen::StageView
                  , public TabView
                  , public WorkspaceView
-                 , public Playable
   {
   public:
     StageView();
     ~StageView();
 
     void updateUsingEditor(Editor* editor);
-    Document* getDoc() const {return m_doc;}
 
     // TabView implementation
     std::string getTabText() override;
@@ -50,46 +51,13 @@ namespace app {
     void onTabPopup(Workspace* workspace) override;
     void onWorkspaceViewSelected() override;
 
-    // Playable implementation
-    frame_t frame() override;
-    void setFrame(frame_t frame) override;
-    void play(const bool playOnce,
-                      const bool playAll) override;
-    void stop() override;
-    bool isPlaying() const override;
-
   protected:
-    void onPaint(ui::PaintEvent& ev) override;
     void onResize(ui::ResizeEvent& ev) override;
-    void onVisible(bool visible) override;
 
   private:
-    static AppRender m_renderEngine;
-
+    StageEditor* m_stageEditor;
     Editor* m_relatedEditor;
     Document* m_doc;
-    // Extra space around the sprite.
-    gfx::Point m_padding;
-    render::Projection m_proj;    // Zoom/pixel ratio in the editor
-    Image* m_doublebuf;
-    she::Surface* m_doublesur;
-
-    gfx::Point m_pos;
-    gfx::Point m_oldMousePos;
-    gfx::Point m_delta;
-
-    Palette* m_bgPal;
-    DocumentPreferences m_docPref;
-
-    bool m_isPlaying;
-    frame_t m_frame;
-
-    void drawBG(ui::PaintEvent& ev);
-    void drawOneSpriteUnclippedRect(ui::Graphics* g
-      , const gfx::Rect& spriteRectToDraw
-      , int dx
-      , int dy
-      , Sprite* sprite);
   };
 
 } // namespace app

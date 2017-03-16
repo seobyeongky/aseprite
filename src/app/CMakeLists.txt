@@ -452,6 +452,7 @@ add_library(app-lib
   ui/popup_window_pin.cpp
   ui/preview_editor.cpp
   ui/stage_view.cpp
+  ui/stage_editor.cpp
   ui/recent_listbox.cpp
   ui/resources_listbox.cpp
   ui/search_entry.cpp
