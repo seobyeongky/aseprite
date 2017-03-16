@@ -12,6 +12,7 @@
 #include "app/ui/tabs.h"
 #include "app/ui/workspace_view.h"
 #include "app/ui/editor/editor.h"
+#include "app/ui/playable.h"
 #include "ui/box.h"
 #include "app/pref/preferences.h"
 
@@ -27,15 +28,17 @@ namespace doc{
 namespace app {
   using namespace doc;
 
-  class StageView : public app::gen::StageView
+  class StageView : public gen::StageView
                  , public TabView
                  , public WorkspaceView
+                 , public Playable
   {
   public:
     StageView();
     ~StageView();
 
     void updateUsingEditor(Editor* editor);
+    Document* getDoc() const {return m_doc;}
 
     // TabView implementation
     std::string getTabText() override;
@@ -47,9 +50,18 @@ namespace app {
     void onTabPopup(Workspace* workspace) override;
     void onWorkspaceViewSelected() override;
 
+    // Playable implementation
+    frame_t frame() override;
+    void setFrame(frame_t frame) override;
+    void play(const bool playOnce,
+                      const bool playAll) override;
+    void stop() override;
+    bool isPlaying() const override;
+
   protected:
     void onPaint(ui::PaintEvent& ev) override;
     void onResize(ui::ResizeEvent& ev) override;
+    void onVisible(bool visible) override;
 
   private:
     static AppRender m_renderEngine;
@@ -68,6 +80,9 @@ namespace app {
 
     Palette* m_bgPal;
     DocumentPreferences m_docPref;
+
+    bool m_isPlaying;
+    frame_t m_frame;
 
     void drawBG(ui::PaintEvent& ev);
     void drawOneSpriteUnclippedRect(ui::Graphics* g

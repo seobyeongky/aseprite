@@ -16,12 +16,13 @@
 
 namespace app {
   class Editor;
+  class Playable;
 
   class AniControls : public ButtonSet {
   public:
     AniControls();
 
-    void updateUsingEditor(Editor* editor);
+    void updateUsingPlayable(Playable* playable);
 
   protected:
     void onRightClick(Item* item) override;

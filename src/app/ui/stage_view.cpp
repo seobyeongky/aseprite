@@ -43,6 +43,7 @@
 #include "doc/conversion_she.h"
 #include "doc/palette.h"
 #include "app/color_utils.h"
+#include "app/ui/timeline.h"
 
 
 namespace app {
@@ -57,6 +58,8 @@ StageView::StageView()
   , m_doublesur(nullptr)
   , m_bgPal(Palette::createGrayscale())
   , m_docPref("")
+  , m_isPlaying(false)
+  , m_frame(-1)
 {
 }
 
@@ -67,11 +70,16 @@ StageView::~StageView()
 void StageView::updateUsingEditor(Editor* editor)
 {
   if (editor == nullptr || !editor->isActive())
+  {
+    if (isVisible())
+      App::instance()->mainWindow()->getTimeline()->updateUsingStageView(this);
     return;
+  }
 
   m_relatedEditor = editor;
   m_doc = editor->document();
 }
+
 
 std::string StageView::getTabText()
 {
@@ -117,6 +125,39 @@ void StageView::onResize(ui::ResizeEvent& ev)
   }
   m_doublesur = she::instance()->createRgbaSurface(ev.bounds().w, ev.bounds().h);
 }
+
+void StageView::onVisible(bool visible)
+{
+  if (visible)
+  {
+  }
+}
+
+frame_t StageView::frame()
+{
+  return m_frame;
+}
+
+void StageView::setFrame(frame_t frame)
+{
+  m_frame = frame;
+}
+
+void StageView::play(const bool playOnce,
+          const bool playAll)
+{
+}
+
+void StageView::stop()
+{
+
+}
+
+bool StageView::isPlaying() const
+{
+  return m_isPlaying;
+}
+
 
 void StageView::onPaint(ui::PaintEvent& ev)
 {

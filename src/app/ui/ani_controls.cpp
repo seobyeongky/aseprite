@@ -28,6 +28,7 @@
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui/status_bar.h"
 #include "app/ui/timeline.h"
+#include "app/ui/playable.h"
 #include "app/ui_context.h"
 #include "app/util/range_utils.h"
 #include "base/bind.h"
@@ -85,11 +86,11 @@ AniControls::AniControls()
   getItem(ACTION_PLAY)->enableFlags(CTRL_RIGHT_CLICK);
 }
 
-void AniControls::updateUsingEditor(Editor* editor)
+void AniControls::updateUsingPlayable(Playable* playable)
 {
   SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
   getItem(ACTION_PLAY)->setIcon(
-    (editor && editor->isPlaying() ?
+    (playable && playable->isPlaying() ?
       theme->parts.aniStop():
       theme->parts.aniPlay()));
 }
@@ -102,7 +103,7 @@ void AniControls::onClickButton()
   Command* cmd = CommandsModule::instance()->getCommandByName(getCommandId(item));
   if (cmd) {
     UIContext::instance()->executeCommand(cmd);
-    updateUsingEditor(current_editor);
+    updateUsingPlayable(current_editor);
   }
 }
 

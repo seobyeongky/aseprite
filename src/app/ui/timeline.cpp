@@ -54,6 +54,8 @@
 #include "she/system.h"
 #include "ui/scroll_helper.h"
 #include "ui/ui.h"
+#include "app/ui/stage_view.h"
+#include "app/ui/playable.h"
 
 #include <cstdio>
 #include <vector>
@@ -203,8 +205,6 @@ void Timeline::onThumbnailsPrefChange()
 
 void Timeline::updateUsingEditor(Editor* editor)
 {
-  m_aniControls.updateUsingEditor(editor);
-
   detachDocument();
 
   if (m_range.enabled()) {
@@ -215,6 +215,8 @@ void Timeline::updateUsingEditor(Editor* editor)
   // We always update the editor. In this way the timeline keeps in
   // sync with the active editor.
   m_editor = editor;
+  m_playable = static_cast<app::Playable*>(m_editor);
+  m_aniControls.updateUsingPlayable(m_playable);
 
   if (m_editor)
     m_editor->add_observer(this);
@@ -253,6 +255,26 @@ void Timeline::updateUsingEditor(Editor* editor)
 
   m_firstFrameConn = Preferences::instance().document(m_document)
     .timeline.firstFrame.AfterChange.connect(base::Bind<void>(&Timeline::invalidate, this));
+
+  setFocusStop(true);
+  regenerateLayers();
+  setViewScroll(viewScroll());
+  showCurrentCel();
+}
+
+void Timeline::updateUsingStageView(StageView* stageView)
+{
+  m_playable = stageView;
+
+  m_aniControls.updateUsingPlayable(m_playable);
+
+  m_document = stageView->getDoc();
+  m_sprite = m_document->sprite();
+  m_layer = m_sprite->firstBrowsableLayer();
+  m_frame = 0;
+  m_state = STATE_STANDBY;
+  m_hot.part = PART_NOTHING;
+  m_clk.part = PART_NOTHING;
 
   setFocusStop(true);
   regenerateLayers();
@@ -303,7 +325,9 @@ bool Timeline::selectedLayersBounds(const SelectedLayers& layers,
 
 void Timeline::setLayer(Layer* layer)
 {
-  ASSERT(m_editor != NULL);
+  if (m_editor == nullptr)
+    return;
+  //ASSERT(m_editor != NULL);
 
   m_layer = layer;
 
@@ -326,7 +350,7 @@ void Timeline::setLayer(Layer* layer)
 
 void Timeline::setFrame(frame_t frame, bool byUser)
 {
-  ASSERT(m_editor != NULL);
+  ASSERT(m_playable != NULL);
   // ASSERT(frame >= 0 && frame < m_sprite->totalFrames());
 
   if (frame < 0)
@@ -337,16 +361,16 @@ void Timeline::setFrame(frame_t frame, bool byUser)
   m_frame = frame;
   invalidate();
 
-  if (m_editor->frame() != frame) {
-    bool isPlaying = m_editor->isPlaying();
+  if (m_playable->frame() != frame) {
+    bool isPlaying = m_playable->isPlaying();
 
     if (isPlaying)
-      m_editor->stop();
+      m_playable->stop();
 
-    m_editor->setFrame(m_frame);
+    m_playable->setFrame(m_frame);
 
     if (isPlaying)
-      m_editor->play(false,
+      m_playable->play(false,
                      Preferences::instance().editor.playAll());
   }
 }
@@ -1395,7 +1419,7 @@ void Timeline::onLayerNameChange(doc::DocumentEvent& ev)
 
 void Timeline::onStateChanged(Editor* editor)
 {
-  m_aniControls.updateUsingEditor(editor);
+  m_aniControls.updateUsingPlayable(editor);
 }
 
 void Timeline::onAfterFrameChanged(Editor* editor)

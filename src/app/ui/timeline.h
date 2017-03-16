@@ -13,6 +13,7 @@
 #include "app/ui/ani_controls.h"
 #include "app/ui/editor/editor_observer.h"
 #include "app/ui/input_chain_element.h"
+#include "app/ui/playable.h"
 #include "doc/document_observer.h"
 #include "doc/documents_observer.h"
 #include "doc/frame.h"
@@ -51,6 +52,7 @@ namespace app {
   class Context;
   class Document;
   class Editor;
+  class StageView;
 
   class Timeline : public ui::Widget
                  , public ui::ScrollableViewDelegate
@@ -79,6 +81,7 @@ namespace app {
     ~Timeline();
 
     void updateUsingEditor(Editor* editor);
+    void updateUsingStageView(StageView* stageView);
 
     Sprite* sprite() { return m_sprite; }
     Layer* getLayer() { return m_layer; }
@@ -319,6 +322,7 @@ namespace app {
     double m_zoom;
     Context* m_context;
     Editor* m_editor;
+    Playable* m_playable;
     Document* m_document;
     Sprite* m_sprite;
     Layer* m_layer;

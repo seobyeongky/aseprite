@@ -15,6 +15,7 @@
 #include "app/tools/active_tool_observer.h"
 #include "app/tools/tool_loop_modifiers.h"
 #include "app/ui/color_source.h"
+#include "app/ui/playable.h"
 #include "app/ui/editor/brush_preview.h"
 #include "app/ui/editor/editor_observers.h"
 #include "app/ui/editor/editor_state.h"
@@ -64,7 +65,8 @@ namespace app {
   class Editor : public ui::Widget
                , public doc::DocumentObserver
                , public IColorSource
-               , public tools::ActiveToolObserver {
+               , public tools::ActiveToolObserver
+               , public Playable {
   public:
     enum EditorFlags {
       kNoneFlag = 0,
@@ -123,14 +125,14 @@ namespace app {
     Document* document() { return m_document; }
     Sprite* sprite() { return m_sprite; }
     Layer* layer() { return m_layer; }
-    frame_t frame() { return m_frame; }
+    frame_t frame() override { return m_frame; }
     DocumentPreferences& docPref() { return m_docPref; }
 
     void getSite(Site* site) const;
     Site getSite() const;
 
     void setLayer(const Layer* layer);
-    void setFrame(frame_t frame);
+    void setFrame(frame_t frame) override;
 
     const render::Projection& projection() const { return m_proj; }
     const render::Zoom& zoom() const { return m_proj.zoom(); }
@@ -218,8 +220,8 @@ namespace app {
 
     // Animation control
     void play(const bool playOnce,
-              const bool playAll);
-    void stop();
+              const bool playAll) override;
+    void stop() override;
     bool isPlaying() const;
 
     // Shows a popup menu to change the editor animation speed.
