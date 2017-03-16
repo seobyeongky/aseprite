@@ -26,6 +26,7 @@
 #include "base/mutex.h"
 #include "doc/site.h"
 #include "doc/sprite.h"
+#include "app/ui/stage_view.h"
 
 namespace app {
 
@@ -102,6 +103,7 @@ void UIContext::setActiveView(DocumentView* docView)
 
   mainWin->getPreviewEditor()->updateUsingEditor(current_editor);
   mainWin->getTimeline()->updateUsingEditor(current_editor);
+  mainWin->getStageView()->updateUsingEditor(current_editor);
 
   // Change the image-type of color bar.
   ColorBar::instance()->setPixelFormat(app_get_current_pixel_format());

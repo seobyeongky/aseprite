@@ -255,6 +255,8 @@
     <part id="tab_icon_bg_hover"                x="56" y="112" w="14" h="12" />
     <part id="tab_home_icon_normal"             x="32" y="240" w="7" h="8" />
     <part id="tab_home_icon_active"             x="40" y="240" w="7" h="8" />
+    <part id="tab_stage_icon_normal"            x="48" y="240" w="7" h="8" />
+    <part id="tab_stage_icon_active"            x="56" y="240" w="7" h="8" /> 
     <part id="editor_normal"                    x="40" y="96" w1="3" w2="10" w3="3" h1="3" h2="10" h3="3" />
     <part id="editor_selected"                  x="56" y="96" w1="3" w2="10" w3="3" h1="3" h2="10" h3="3" />
     <part id="colorbar_0"                       x="0" y="192" w1="5" w2="6" w3="5" h1="5" h2="6" h3="5" />
@@ -835,6 +837,14 @@
     </style>
     <style id="tab_home:active">
       <icon part="tab_home_icon_active" />
+    </style>
+
+    <!-- tab_stage -->
+    <style id="tab_stage">
+        <icon part="tab_stage_icon_normal" align="left" valign="middle" x="4" y="1" />
+    </style>
+    <style id="tab_stage:active">
+        <icon part="tab_stage_icon_active"/>
     </style>
 
     <!-- workspace_label -->

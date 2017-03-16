@@ -599,6 +599,17 @@ void Tabs::drawTab(Graphics* g, const gfx::Rect& _box,
           dx += theme->dimensions.tabsIconWidth();
         }
         break;
+      case TabIcon::STAGE:
+        {
+          theme->styles.tabStage()->paint(g,
+            gfx::Rect(
+              box.x,
+              box.y+dy,
+              box.x-dx,
+              box.h),
+            nullptr, state);
+          dx += theme->dimensions.tabsIconWidth();
+        }
     }
 
     // Tab with text + clipping the close button

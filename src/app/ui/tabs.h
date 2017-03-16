@@ -28,6 +28,7 @@ namespace app {
   enum class TabIcon {
     NONE,
     HOME,
+    STAGE,
   };
 
   // Required interface to be implemented by each new tab that is added

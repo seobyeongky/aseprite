@@ -27,6 +27,7 @@
 #include "app/ui/main_menu_bar.h"
 #include "app/ui/notifications.h"
 #include "app/ui/preview_editor.h"
+#include "app/ui/stage_view.h"
 #include "app/ui/skin/skin_property.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui/status_bar.h"
@@ -112,6 +113,7 @@ MainWindow::MainWindow()
   m_tabsBar = new WorkspaceTabs(this);
   m_workspace = new Workspace();
   m_previewEditor = new PreviewEditorWindow();
+  m_stageView = new StageView();
   m_timeline = new Timeline();
 
   m_workspace->setTabsBar(m_tabsBar);
@@ -181,6 +183,11 @@ MainWindow::~MainWindow()
     delete m_homeView;
   }
   delete m_contextBar;
+  if (m_stageView) {
+    if (m_stageView->parent())
+      m_workspace->removeView(m_stageView);
+    delete m_stageView;
+  }
   delete m_previewEditor;
 
   // Destroy the workspace first so ~Editor can dettach slots from
@@ -259,6 +266,19 @@ void MainWindow::showHome()
 bool MainWindow::isHomeSelected()
 {
   return (m_tabsBar->getSelectedTab() == m_homeView && m_homeView);
+}
+
+void MainWindow::showStage()
+{
+  if (!getStageView()->parent()) {
+    m_workspace->addView(m_stageView, 0);
+  }
+  m_tabsBar->selectTab(m_stageView);
+}
+
+bool MainWindow::isStageSelected()
+{
+  return (m_tabsBar->getSelectedTab() == m_stageView && m_stageView);
 }
 
 void MainWindow::showBrowser(const std::string& filename)

@@ -802,6 +802,7 @@
           <param name="switch" value="true" />
         </item>
         <item command="TogglePreview" text="Previe&amp;w" />
+        <item command="ToggleStage" text="Stage" />
         <item command="AdvancedMode" text="&amp;Full Screen Mode" />
         <item command="FullscreenPreview" text="F&amp;ull Screen Preview" />
         <item command="Home" text="&amp;Home" />

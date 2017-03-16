@@ -37,6 +37,7 @@ namespace app {
   class Timeline;
   class Workspace;
   class WorkspaceTabs;
+  class StageView;
 
   namespace crash {
     class DataRecovery;
@@ -60,6 +61,7 @@ namespace app {
     Timeline* getTimeline() { return m_timeline; }
     Workspace* getWorkspace() { return m_workspace; }
     PreviewEditorWindow* getPreviewEditor() { return m_previewEditor; }
+    StageView* getStageView() { return m_stageView;}
 #ifdef ENABLE_UPDATER
     CheckUpdateDelegate* getCheckUpdateDelegate();
 #endif
@@ -69,7 +71,9 @@ namespace app {
     void showNotification(INotificationDelegate* del);
     void showHomeOnOpen();
     void showHome();
+    void showStage();
     bool isHomeSelected();
+    bool isStageSelected();
     void showDevConsole();
     void showBrowser(const std::string& filename);
 
@@ -115,6 +119,7 @@ namespace app {
     Timeline* m_timeline;
     Workspace* m_workspace;
     PreviewEditorWindow* m_previewEditor;
+    StageView* m_stageView;
     HomeView* m_homeView;
     Notifications* m_notifications;
     INotificationDelegate* m_scalePanic;

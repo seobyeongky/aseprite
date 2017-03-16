@@ -317,6 +317,7 @@ add_library(app-lib
   commands/cmd_tiled_mode.cpp
   commands/cmd_timeline.cpp
   commands/cmd_toggle_preview.cpp
+  commands/cmd_toggle_stage.cpp
   commands/cmd_toggle_timeline_thumbnails.cpp
   commands/cmd_undo.cpp
   commands/cmd_undo_history.cpp
@@ -450,6 +451,7 @@ add_library(app-lib
   ui/palettes_listbox.cpp
   ui/popup_window_pin.cpp
   ui/preview_editor.cpp
+  ui/stage_view.cpp
   ui/recent_listbox.cpp
   ui/resources_listbox.cpp
   ui/search_entry.cpp
