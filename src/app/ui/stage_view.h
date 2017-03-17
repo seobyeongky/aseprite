@@ -20,6 +20,7 @@
 #include "stage_view.xml.h"
 
 namespace ui {
+  class Label;
   class View;
 }
 namespace doc{
@@ -51,6 +52,8 @@ namespace app {
     void onTabPopup(Workspace* workspace) override;
     void onWorkspaceViewSelected() override;
 
+    ui::Label* getDbgLabel() {return m_dbgLabel;}
+
   protected:
     void onResize(ui::ResizeEvent& ev) override;
 
@@ -58,6 +61,7 @@ namespace app {
     StageEditor* m_stageEditor;
     Editor* m_relatedEditor;
     Document* m_doc;
+    ui::Label* m_dbgLabel;
   };
 
 } // namespace app

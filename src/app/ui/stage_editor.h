@@ -19,6 +19,7 @@
 
 namespace ui {
   class View;
+  class Label;
 }
 namespace doc{
   class Palette;
@@ -27,7 +28,7 @@ namespace doc{
 namespace app {
   using namespace doc;
 
-  class StageEditor : public ui::HBox
+  class StageEditor : public ui::Widget
                     , public Playable
   {
   public:
@@ -45,13 +46,16 @@ namespace app {
     void stop() override;
     bool isPlaying() const override;
 
+
   protected:
     void onPaint(ui::PaintEvent& ev) override;
     void onResize(ui::ResizeEvent& ev) override;
     bool onProcessMessage(ui::Message* msg) override;
+    void onSizeHint(ui::SizeHintEvent& ev) override;
 
   private:
     static AppRender m_renderEngine;
+
 
     Document* m_doc;
     // Extra space around the sprite.

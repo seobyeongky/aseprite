@@ -9,6 +9,7 @@
 #endif
 
 #include "app/ui/stage_editor.h"
+#include "app/ui/stage_view.h"
 
 #include "app/app.h"
 #include "app/app_menus.h"
@@ -50,6 +51,9 @@
 #include "app/ui/editor/scrolling_state.h"
 #include "app/ui/editor/standby_state.h"
 #include "app/ui/editor/zooming_state.h"
+#include "ui/label.h"
+
+#define DEBUG_MSG App::instance()->mainWindow()->getStageView()->getDbgLabel()->setTextf
 
 namespace app {
 
@@ -71,12 +75,14 @@ StageEditor::StageEditor()
 
 StageEditor::~StageEditor()
 {
+  m_doublesur->dispose();
+  delete m_doublebuf;
 }
 
 void StageEditor::onResize(ui::ResizeEvent& ev)
 {
   Widget::onResize(ev);
-  
+
   if (m_doublebuf)
   {
     delete m_doublebuf;
@@ -173,6 +179,8 @@ bool StageEditor::onProcessMessage(Message* msg)
         scroll -= newPos - m_oldMousePos;
         m_oldMousePos = newPos;
         view->setViewScroll(scroll);
+        DEBUG_MSG("scroll x(%d) y(%d)", scroll.x, scroll.y);
+        return true;
       }
       break;
 
@@ -208,6 +216,18 @@ bool StageEditor::onProcessMessage(Message* msg)
   }
 
   return Widget::onProcessMessage(msg);
+}
+
+void StageEditor::onSizeHint(SizeHintEvent& ev)
+{
+  gfx::Size sz(0, 0);
+  if (m_doc != nullptr && m_doc->sprite() != nullptr)
+  {
+    sz.w = 500;
+    sz.h = 500;
+  }
+
+  ev.setSizeHint(sz);
 }
 
 void StageEditor::drawBG(ui::PaintEvent& ev)

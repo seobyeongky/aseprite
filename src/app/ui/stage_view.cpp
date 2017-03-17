@@ -52,6 +52,7 @@
 #include "app/ui/editor/standby_state.h"
 #include "app/ui/editor/zooming_state.h"
 #include "app/ui/status_bar.h"
+#include "app/modules/gui.h"
 
 namespace app {
 
@@ -62,13 +63,28 @@ using namespace app::skin;
 StageView::StageView()
   : m_stageEditor(new StageEditor())
 {
+  m_dbgLabel = new Label("debug");
+  dbgBox()->addChild(m_dbgLabel);
+
   m_stageEditor->setVisible(true);
   stageEditorView()->attachToView(m_stageEditor);
   stageEditorView()->setExpansive(true);
+
+  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+  int barsize = theme->dimensions.miniScrollbarSize();
+
+  stageEditorView()->horizontalBar()->setBarWidth(barsize);
+  stageEditorView()->verticalBar()->setBarWidth(barsize);
+
+  setup_mini_look(stageEditorView()->horizontalBar());
+  setup_mini_look(stageEditorView()->verticalBar());
+
+  stageEditorView()->showScrollBars();
 }
 
 StageView::~StageView()
 {
+  delete m_dbgLabel;
   delete m_stageEditor;
 }
 
