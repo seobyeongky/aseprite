@@ -21,8 +21,12 @@ namespace ui {
   class View;
   class Label;
 }
-namespace doc{
+namespace doc {
   class Palette;
+  class FrameTag;
+}
+
+namespace render {
 }
 
 namespace app {
@@ -76,12 +80,14 @@ namespace app {
     bool m_isScrolling;
 
     void drawBG(ui::PaintEvent& ev);
-    void drawOneSpriteUnclippedRect(ui::Graphics* g
+    void drawSprite(ui::Graphics* g
       , const gfx::Rect& spriteRectToDraw
       , int dx
       , int dy
-      , Sprite* sprite);
+      , Sprite* sprite
+      , frame_t frame);
 
+    FrameTag* currentFrameTag(Sprite * sprite);
   };
 
 } // namespace app

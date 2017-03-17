@@ -141,6 +141,11 @@ private:
     for (frame_t fr = 0; fr < spr->totalFrames(); ++fr)
       write32(s, spr->frameDuration(fr));
 
+    for (frame_t fr = 0; fr < spr->totalFrames(); ++fr) {
+      write32(s, spr->frameRootPosition(fr).x);
+      write32(s, spr->frameRootPosition(fr).y);
+    }
+
     // IDs of all main layers
     write32(s, spr->allLayersCount());
     writeAllLayersID(s, 0, spr->root());

@@ -83,6 +83,8 @@ struct ASE_FrameHeader {
   uint16_t magic;
   uint16_t chunks;
   uint16_t duration;
+  uint16_t root_x;
+  uint16_t root_y;
 };
 
 struct ASE_Chunk {
@@ -241,6 +243,9 @@ bool AseFormat::onLoad(FileOp* fop)
       // Use frame-duration field?
       if (frame_header.duration > 0)
         sprite->setFrameDuration(frame, frame_header.duration);
+
+      sprite->setFrameRootPosition(frame
+        , gfx::Point(frame_header.root_x, frame_header.root_y));
 
       // Read chunks
       for (int c=0; c<frame_header.chunks; c++) {
@@ -427,6 +432,10 @@ bool AseFormat::onSave(FileOp* fop)
     // Frame duration
     frame_header.duration = sprite->frameDuration(frame);
 
+    // Frame root position
+    frame_header.root_x = sprite->frameRootPosition(frame).x;
+    frame_header.root_y = sprite->frameRootPosition(frame).y;
+
     // is the first frame or did the palette change?
     Palette* pal = sprite->palette(frame);
     int palFrom = 0, palTo = pal->size()-1;
@@ -593,7 +602,9 @@ static void ase_file_read_frame_header(FILE* f, ASE_FrameHeader* frame_header)
   frame_header->magic = fgetw(f);
   frame_header->chunks = fgetw(f);
   frame_header->duration = fgetw(f);
-  ase_file_read_padding(f, 6);
+  frame_header->root_x = fgetw(f);
+  frame_header->root_y = fgetw(f);
+  ase_file_read_padding(f, 2);
 }
 
 static void ase_file_prepare_frame_header(FILE* f, ASE_FrameHeader* frame_header)
@@ -604,6 +615,8 @@ static void ase_file_prepare_frame_header(FILE* f, ASE_FrameHeader* frame_header
   frame_header->magic = ASE_FILE_FRAME_MAGIC;
   frame_header->chunks = 0;
   frame_header->duration = 0;
+  frame_header->root_x = 0;
+  frame_header->root_y = 0;
 
   fseek(f, pos+16, SEEK_SET);
 }
@@ -621,7 +634,9 @@ static void ase_file_write_frame_header(FILE* f, ASE_FrameHeader* frame_header)
   fputw(frame_header->magic, f);
   fputw(frame_header->chunks, f);
   fputw(frame_header->duration, f);
-  ase_file_write_padding(f, 6);
+  fputw(frame_header->root_x, f);
+  fputw(frame_header->root_y, f);
+  ase_file_write_padding(f, 2);
 
   fseek(f, end, SEEK_SET);
 }

@@ -43,6 +43,7 @@ Sprite::Sprite(PixelFormat format, int width, int height, int ncolors)
   ASSERT(width > 0 && height > 0);
 
   m_frlens.push_back(100);      // First frame with 100 msecs of duration
+  m_frroots.push_back(gfx::Point(0, 0));
   m_root = new LayerGroup(this);
 
   // Generate palette
@@ -358,10 +359,13 @@ void Sprite::setTotalFrames(frame_t frames)
 {
   frames = MAX(frame_t(1), frames);
   m_frlens.resize(frames);
+  m_frroots.resize(frames);
 
   if (frames > m_frames) {
-    for (frame_t c=m_frames; c<frames; ++c)
+    for (frame_t c=m_frames; c<frames; ++c) {
       m_frlens[c] = m_frlens[m_frames-1];
+      m_frroots[c] = m_frroots[m_frames-1];
+    }
   }
 
   m_frames = frames;
@@ -375,10 +379,24 @@ int Sprite::frameDuration(frame_t frame) const
     return 0;
 }
 
+gfx::Point Sprite::frameRootPosition(frame_t frame) const
+{
+  if (frame >= 0 && frame < m_frames)
+    return m_frroots[frame];
+  else
+    return gfx::Point(0, 0);
+}
+
 void Sprite::setFrameDuration(frame_t frame, int msecs)
 {
   if (frame >= 0 && frame < m_frames)
     m_frlens[frame] = MID(1, msecs, 65535);
+}
+
+void Sprite::setFrameRootPosition(frame_t frame, gfx::Point p)
+{
+  if (frame >= 0 && frame < m_frames)
+    m_frroots[frame] = p;
 }
 
 void Sprite::setFrameRangeDuration(frame_t from, frame_t to, int msecs)

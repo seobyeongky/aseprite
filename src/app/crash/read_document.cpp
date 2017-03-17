@@ -230,6 +230,12 @@ private:
         int msecs = read32(s);
         spr->setFrameDuration(fr, msecs);
       }
+      for (frame_t fr=0; fr<nframes; ++fr) {
+        gfx::Point point;
+        point.x = read32(s);
+        point.y = read32(s);
+        spr->setFrameRootPosition(fr, point);
+      }
     }
     else {
       Console().printf("Invalid number of frames #%d\n", nframes);

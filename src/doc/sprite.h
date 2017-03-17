@@ -125,6 +125,9 @@ namespace doc {
     void setFrameRangeDuration(frame_t from, frame_t to, int msecs);
     void setDurationForAllFrames(int msecs);
 
+    gfx::Point frameRootPosition(frame_t frame) const;
+    void setFrameRootPosition(frame_t frame, gfx::Point p);
+
     const FrameTags& frameTags() const { return m_frameTags; }
     FrameTags& frameTags() { return m_frameTags; }
 
@@ -166,6 +169,7 @@ namespace doc {
     PixelRatio m_pixelRatio;
     frame_t m_frames;                      // how many frames has this sprite
     std::vector<int> m_frlens;             // duration per frame
+    std::vector<gfx::Point> m_frroots;     // root position per frame
     PalettesList m_palettes;               // list of palettes
     LayerGroup* m_root;                    // main group of layers
 

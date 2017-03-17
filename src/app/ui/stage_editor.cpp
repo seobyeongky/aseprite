@@ -52,6 +52,7 @@
 #include "app/ui/editor/standby_state.h"
 #include "app/ui/editor/zooming_state.h"
 #include "ui/label.h"
+#include "doc/frame_tag.h"
 
 #define DEBUG_MSG App::instance()->mainWindow()->getStageView()->getDbgLabel()->setTextf
 
@@ -68,7 +69,7 @@ StageEditor::StageEditor()
   , m_bgPal(Palette::createGrayscale())
   , m_docPref("")
   , m_isPlaying(false)
-  , m_frame(-1)
+  , m_frame(0)
   , m_isScrolling(false)
 {
 }
@@ -102,7 +103,12 @@ frame_t StageEditor::frame()
 
 void StageEditor::setFrame(frame_t frame)
 {
+  if (m_frame == frame)
+    return;
+
   m_frame = frame;
+
+  invalidate();
 }
 
 void StageEditor::play(const bool playOnce,
@@ -120,26 +126,52 @@ bool StageEditor::isPlaying() const
   return m_isPlaying;
 }
 
+FrameTag* StageEditor::currentFrameTag(Sprite * sprite)
+{
+  for (auto frameTag : sprite->frameTags())
+  {
+    if (frameTag->fromFrame() <= m_frame
+      && m_frame <= frameTag->toFrame())
+    {
+      return frameTag;
+    }
+  }
+  return nullptr;
+}
+
 void StageEditor::onPaint(ui::PaintEvent& ev)
 {
   Graphics* g = ev.graphics();
-  gfx::Rect rc = clientBounds();
   SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
 
   drawBG(ev);
 
-  if (m_doc == nullptr || m_doc->sprite() == nullptr)
-  {
+  if (m_doc == nullptr || m_doc->sprite() == nullptr) {
     return;
   }
 
   auto sprite = m_doc->sprite();
+  auto frameTag = currentFrameTag(sprite);
 
-  drawOneSpriteUnclippedRect(g
-    , gfx::Rect(0, 0, sprite->width(), sprite->height())
-    , 100
-    , 100
-    , sprite);
+  if (frameTag == nullptr) {
+    drawSprite(g
+      , gfx::Rect(0, 0, sprite->width(), sprite->height())
+      , 0
+      , 0
+      , sprite
+      , m_frame);
+
+    return;
+  }
+
+  for (frame_t fr = frameTag->fromFrame(); fr <= frameTag->toFrame(); ++fr) {
+    drawSprite(g
+      , gfx::Rect(0, 0, sprite->width(), sprite->height())
+      , sprite->frameRootPosition(fr).x
+      , sprite->frameRootPosition(fr).y
+      , sprite
+      , fr);
+  }
 }
 
 bool StageEditor::onProcessMessage(Message* msg)
@@ -179,7 +211,7 @@ bool StageEditor::onProcessMessage(Message* msg)
         scroll -= newPos - m_oldMousePos;
         m_oldMousePos = newPos;
         view->setViewScroll(scroll);
-        DEBUG_MSG("scroll x(%d) y(%d)", scroll.x, scroll.y);
+        //DEBUG_MSG("scroll x(%d) y(%d)", scroll.x, scroll.y);
         return true;
       }
       break;
@@ -280,18 +312,19 @@ void StageEditor::drawBG(ui::PaintEvent& ev)
   g->blit(m_doublesur, 0, 0, 0, 0, m_doublesur->width(), m_doublesur->height()); 
 }
 
-void StageEditor::drawOneSpriteUnclippedRect(ui::Graphics* g
+void StageEditor::drawSprite(ui::Graphics* g
   , const gfx::Rect& spriteRectToDraw
   , int dx
   , int dy
-  , Sprite * sprite)
+  , Sprite * sprite
+  , frame_t frame)
 {
   // Clip from sprite and apply zoom
   gfx::Rect rc = sprite->bounds().createIntersection(spriteRectToDraw);
   rc = m_proj.apply(rc);
 
-  int dest_x = dx + m_padding.x + rc.x;
-  int dest_y = dy + m_padding.y + rc.y;
+  int dest_x = dx + m_padding.x + rc.x + clientBounds().center().x;
+  int dest_y = dy + m_padding.y + rc.y + clientBounds().center().y;
 
   // Clip from graphics/screen
   const gfx::Rect& clip = g->getClipBounds();
@@ -315,13 +348,11 @@ void StageEditor::drawOneSpriteUnclippedRect(ui::Graphics* g
   if (rc.isEmpty())
     return;
 
-
   auto renderBuf = Editor::getRenderImageBuffer();
   // Generate the rendered image
   if (!renderBuf)
     renderBuf.reset(new doc::ImageBuffer());
 
-  int m_frame = 0;
   base::UniquePtr<Image> rendered(NULL);
   try {
     // Generate a "expose sprite pixels" notification. This is used by
@@ -363,7 +394,7 @@ void StageEditor::drawOneSpriteUnclippedRect(ui::Graphics* g
     m_renderEngine.setBgType(render::BgType::TRANSPARENT);
 
     m_renderEngine.renderSprite(
-      rendered, sprite, m_frame, gfx::Clip(0, 0, rc));
+      rendered, sprite, frame, gfx::Clip(0, 0, rc));
 
     m_renderEngine.removeExtraImage();
   }
@@ -382,7 +413,7 @@ void StageEditor::drawOneSpriteUnclippedRect(ui::Graphics* g
     }
 
     if (tmp->nativeHandle()) {
-      convert_image_to_surface(rendered, sprite->palette(m_frame),
+      convert_image_to_surface(rendered, sprite->palette(frame),
         tmp, 0, 0, 0, 0, rc.w, rc.h);
 
       g->drawRgbaSurface(tmp, dest_x, dest_y);
