@@ -339,8 +339,10 @@ RgbMap* Sprite::rgbMap(frame_t frame, RgbMapFor forLayer) const
 void Sprite::addFrame(frame_t newFrame)
 {
   setTotalFrames(m_frames+1);
-  for (frame_t i=m_frames-1; i>=newFrame; --i)
+  for (frame_t i=m_frames-1; i>=newFrame; --i) {
     setFrameDuration(i, frameDuration(i-1));
+    setFrameRootPosition(i, frameRootPosition(i-1));
+  }
 
   root()->displaceFrames(newFrame, +1);
 }
@@ -350,8 +352,10 @@ void Sprite::removeFrame(frame_t frame)
   root()->displaceFrames(frame, -1);
 
   frame_t newTotal = m_frames-1;
-  for (frame_t i=frame; i<newTotal; ++i)
+  for (frame_t i=frame; i<newTotal; ++i) {
     setFrameDuration(i, frameDuration(i+1));
+    setFrameRootPosition(i, frameRootPosition(i+1));
+  }
   setTotalFrames(newTotal);
 }
 
@@ -393,7 +397,7 @@ void Sprite::setFrameDuration(frame_t frame, int msecs)
     m_frlens[frame] = MID(1, msecs, 65535);
 }
 
-void Sprite::setFrameRootPosition(frame_t frame, gfx::Point p)
+void Sprite::setFrameRootPosition(frame_t frame, const gfx::Point & p)
 {
   if (frame >= 0 && frame < m_frames)
     m_frroots[frame] = p;

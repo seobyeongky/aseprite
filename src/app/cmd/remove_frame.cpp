@@ -27,6 +27,7 @@ RemoveFrame::RemoveFrame(Sprite* sprite, frame_t frame)
   , m_firstTime(true)
 {
   m_frameDuration = sprite->frameDuration(frame);
+  m_frameRootPosition = sprite->frameRootPosition(frame);
   for (Cel* cel : sprite->cels(m_frame))
     m_seq.add(new cmd::RemoveCel(cel));
 }
@@ -60,6 +61,7 @@ void RemoveFrame::onUndo()
 
   sprite->addFrame(m_frame);
   sprite->setFrameDuration(m_frame, m_frameDuration);
+  sprite->setFrameRootPosition(m_frame, m_frameRootPosition);
   sprite->incrementVersion();
   m_seq.undo();
 

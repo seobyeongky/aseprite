@@ -471,6 +471,7 @@ void paste()
           for (frame_t srcFrame : srcRange.selectedFrames()) {
             api.addEmptyFrame(dstSpr, dstFrame);
             api.setFrameDuration(dstSpr, dstFrame, srcSpr->frameDuration(srcFrame));
+            api.setFrameRootPosition(dstSpr, dstFrame, srcSpr->frameRootPosition(srcFrame));
 
             auto srcIt = srcLayers.begin();
             auto dstIt = dstLayers.begin();

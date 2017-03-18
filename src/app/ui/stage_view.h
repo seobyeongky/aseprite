@@ -53,6 +53,7 @@ namespace app {
     void onWorkspaceViewSelected() override;
 
     ui::Label* getDbgLabel() {return m_dbgLabel;}
+    ui::Label* getPositionLabel() {return m_positionLabel;}
 
   protected:
     void onResize(ui::ResizeEvent& ev) override;
@@ -62,6 +63,7 @@ namespace app {
     Editor* m_relatedEditor;
     Document* m_doc;
     ui::Label* m_dbgLabel;
+    ui::Label* m_positionLabel;
   };
 
 } // namespace app

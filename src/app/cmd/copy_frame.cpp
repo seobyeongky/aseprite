@@ -13,6 +13,7 @@
 #include "app/cmd/add_frame.h"
 #include "app/cmd/copy_cel.h"
 #include "app/cmd/set_frame_duration.h"
+#include "app/cmd/set_frame_root_position.h"
 #include "doc/sprite.h"
 #include "doc/layer.h"
 
@@ -33,9 +34,11 @@ void CopyFrame::onExecute()
   Sprite* sprite = this->sprite();
   frame_t fromFrame = m_fromFrame;
   int msecs = sprite->frameDuration(fromFrame);
+  gfx::Point root = sprite->frameRootPosition(fromFrame);
 
   executeAndAdd(new cmd::AddFrame(sprite, m_newFrame));
   executeAndAdd(new cmd::SetFrameDuration(sprite, m_newFrame, msecs));
+  executeAndAdd(new cmd::SetFrameRootPosition(sprite, m_newFrame, root));
 
   if (fromFrame >= m_newFrame)
     ++fromFrame;

@@ -33,6 +33,8 @@ namespace doc {
 
     void notifyActiveSiteChanged();
 
+    void setActiveDocument(Document* doc) {m_activeDoc = doc;}
+
   protected:
     virtual void onGetActiveSite(Site* site) const;
     virtual void onAddDocument(Document* doc) override;

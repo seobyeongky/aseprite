@@ -54,6 +54,7 @@ namespace doc {
     virtual void onCelOpacityChange(DocumentEvent& ev) { }
 
     virtual void onFrameDurationChanged(DocumentEvent& ev) { }
+    virtual void onFrameRootPositionChanged(DocumentEvent& ev) { }
 
     virtual void onImagePixelsModified(DocumentEvent& ev) { }
     virtual void onSpritePixelsModified(DocumentEvent& ev) { }

@@ -126,7 +126,7 @@ namespace doc {
     void setDurationForAllFrames(int msecs);
 
     gfx::Point frameRootPosition(frame_t frame) const;
-    void setFrameRootPosition(frame_t frame, gfx::Point p);
+    void setFrameRootPosition(frame_t frame, const gfx::Point & p);
 
     const FrameTags& frameTags() const { return m_frameTags; }
     FrameTags& frameTags() { return m_frameTags; }

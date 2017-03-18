@@ -66,6 +66,10 @@ StageView::StageView()
   m_dbgLabel = new Label("debug");
   dbgBox()->addChild(m_dbgLabel);
 
+  m_positionLabel = new Label("sfdasdf");
+  m_positionLabel->setExpansive(true);
+  dbgBox()->addChild(m_positionLabel);
+
   m_stageEditor->setVisible(true);
   stageEditorView()->attachToView(m_stageEditor);
   stageEditorView()->setExpansive(true);
@@ -84,6 +88,7 @@ StageView::StageView()
 
 StageView::~StageView()
 {
+  delete m_positionLabel;
   delete m_dbgLabel;
   delete m_stageEditor;
 }

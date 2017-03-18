@@ -182,6 +182,7 @@ add_library(app-lib
   cmd/set_cel_opacity.cpp
   cmd/set_cel_position.cpp
   cmd/set_frame_duration.cpp
+  cmd/set_frame_root_position.cpp
   cmd/set_frame_tag_anidir.cpp
   cmd/set_frame_tag_color.cpp
   cmd/set_frame_tag_name.cpp

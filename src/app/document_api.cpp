@@ -33,6 +33,7 @@
 #include "app/cmd/set_cel_opacity.h"
 #include "app/cmd/set_cel_position.h"
 #include "app/cmd/set_frame_duration.h"
+#include "app/cmd/set_frame_root_position.h"
 #include "app/cmd/set_frame_tag_range.h"
 #include "app/cmd/set_mask.h"
 #include "app/cmd/set_mask_position.h"
@@ -207,6 +208,11 @@ void DocumentApi::setFrameDuration(Sprite* sprite, frame_t frame, int msecs)
   m_transaction.execute(new cmd::SetFrameDuration(sprite, frame, msecs));
 }
 
+void DocumentApi::setFrameRootPosition(Sprite* sprite, frame_t frame, const gfx::Point & p)
+{
+  m_transaction.execute(new cmd::SetFrameRootPosition(sprite, frame, p));
+}
+
 void DocumentApi::setFrameRangeDuration(Sprite* sprite, frame_t from, frame_t to, int msecs)
 {
   ASSERT(from >= frame_t(0));
@@ -226,18 +232,25 @@ void DocumentApi::moveFrame(Sprite* sprite, frame_t frame, frame_t beforeFrame)
       beforeFrame <= sprite->lastFrame()+1) {
     // Change the frame-lengths.
     int frlen_aux = sprite->frameDuration(frame);
+    gfx::Point frroot_aux = sprite->frameRootPosition(frame);
 
     // Moving the frame to the future.
     if (frame < beforeFrame) {
-      for (frame_t c=frame; c<beforeFrame-1; ++c)
+      for (frame_t c=frame; c<beforeFrame-1; ++c) {
         setFrameDuration(sprite, c, sprite->frameDuration(c+1));
+        setFrameRootPosition(sprite, c, sprite->frameRootPosition(c+1));
+      }
       setFrameDuration(sprite, beforeFrame-1, frlen_aux);
+      setFrameRootPosition(sprite, beforeFrame-1, frroot_aux);
     }
     // Moving the frame to the past.
     else if (beforeFrame < frame) {
-      for (frame_t c=frame; c>beforeFrame; --c)
+      for (frame_t c=frame; c>beforeFrame; --c) {
         setFrameDuration(sprite, c, sprite->frameDuration(c-1));
+        setFrameRootPosition(sprite, c, sprite->frameRootPosition(c-1));
+      }
       setFrameDuration(sprite, beforeFrame, frlen_aux);
+      setFrameRootPosition(sprite, beforeFrame, frroot_aux);
     }
 
     adjustFrameTags(sprite, frame, -1, true);

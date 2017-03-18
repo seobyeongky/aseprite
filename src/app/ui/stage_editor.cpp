@@ -53,8 +53,13 @@
 #include "app/ui/editor/zooming_state.h"
 #include "ui/label.h"
 #include "doc/frame_tag.h"
+#include "app/context.h"
+#include "doc/context.h"
+#include "app/transaction.h"
+#include "app/document_api.h"
 
 #define DEBUG_MSG App::instance()->mainWindow()->getStageView()->getDbgLabel()->setTextf
+#define POSITION_TEXT App::instance()->mainWindow()->getStageView()->getPositionLabel()->setTextf
 
 namespace app {
 
@@ -71,6 +76,7 @@ StageEditor::StageEditor()
   , m_isPlaying(false)
   , m_frame(0)
   , m_isScrolling(false)
+  , m_isMoving(false)
 {
 }
 
@@ -78,6 +84,15 @@ StageEditor::~StageEditor()
 {
   m_doublesur->dispose();
   delete m_doublebuf;
+}
+
+void StageEditor::setDocument(Document* doc)
+{
+  if (m_doc != nullptr) {
+    m_doc->remove_observer(this);
+  }
+  m_doc = doc;
+  m_doc->add_observer(this);
 }
 
 void StageEditor::onResize(ui::ResizeEvent& ev)
@@ -107,7 +122,12 @@ void StageEditor::setFrame(frame_t frame)
     return;
 
   m_frame = frame;
+  if (m_doc != nullptr && m_doc->sprite() != nullptr)
+  {
+    m_previewPos = m_doc->sprite()->frameRootPosition(m_frame);
+  }
 
+  updatePositionText();
   invalidate();
 }
 
@@ -124,6 +144,13 @@ void StageEditor::stop()
 bool StageEditor::isPlaying() const
 {
   return m_isPlaying;
+}
+
+void StageEditor::onFrameRootPositionChanged(DocumentEvent& ev)
+{
+  // just redraw
+  m_previewPos = ev.sprite()->frameRootPosition(m_frame);
+  invalidate();
 }
 
 FrameTag* StageEditor::currentFrameTag(Sprite * sprite)
@@ -165,6 +192,9 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
   }
 
   for (frame_t fr = frameTag->fromFrame(); fr <= frameTag->toFrame(); ++fr) {
+    if (fr == m_frame)
+      continue;
+
     drawSprite(g
       , gfx::Rect(0, 0, sprite->width(), sprite->height())
       , sprite->frameRootPosition(fr).x
@@ -172,6 +202,13 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
       , sprite
       , fr);
   }
+
+  drawSprite(g
+    , gfx::Rect(0, 0, sprite->width(), sprite->height())
+    , m_previewPos.x
+    , m_previewPos.y
+    , sprite
+    , m_frame);
 }
 
 bool StageEditor::onProcessMessage(Message* msg)
@@ -190,19 +227,21 @@ bool StageEditor::onProcessMessage(Message* msg)
     case kMouseDownMessage:
       {
         MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
-        if (mouseMsg->middle())
-        {
+        if (mouseMsg->middle() || mouseMsg->right()) {
           m_oldMousePos = mouseMsg->position();
           captureMouse();
           m_isScrolling = true;
           return true;
+        } else if (mouseMsg->left()) {
+          m_oldMousePos = mouseMsg->position();
+          captureMouse();
+          m_isMoving = true;
         }
       }
       break;
 
     case kMouseMoveMessage:
-      if (m_isScrolling)
-      {
+      if (m_isScrolling) {
         MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
         View* view = View::getView(this);
         gfx::Point scroll = view->viewScroll();
@@ -213,6 +252,18 @@ bool StageEditor::onProcessMessage(Message* msg)
         view->setViewScroll(scroll);
         //DEBUG_MSG("scroll x(%d) y(%d)", scroll.x, scroll.y);
         return true;
+      } else if (m_isMoving) {
+        MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
+        gfx::Point delta = mouseMsg->position() - m_oldMousePos;
+        m_oldMousePos = mouseMsg->position();
+        if (m_doc != nullptr && m_doc->sprite() != nullptr)
+        {
+          m_previewPos += delta;
+
+          updatePositionText();
+          invalidate();
+          return true;
+        }
       }
       break;
 
@@ -221,6 +272,21 @@ bool StageEditor::onProcessMessage(Message* msg)
       {
         releaseMouse();
         m_isScrolling = false;
+        return true;
+      } else if (m_isMoving) {
+        if (m_doc != nullptr && m_doc->sprite() != nullptr) {
+          app::Context* context = static_cast<app::Context*>(m_doc->context());
+          context->setActiveDocument(m_doc);
+          const ContextReader reader(context);
+          ContextWriter writer(reader, 500);
+          Transaction transaction(writer.context(), "set frame root position", ModifyDocument);
+          DocumentApi api = m_doc->getApi(transaction); 
+          api.setFrameRootPosition(m_doc->sprite(), m_frame, m_previewPos);
+          transaction.commit();
+        }
+
+        releaseMouse();
+        m_isMoving = false;
         return true;
       }
       break;
@@ -421,5 +487,17 @@ void StageEditor::drawSprite(ui::Graphics* g
   }
 }
 
+void StageEditor::updatePositionText()
+{
+  if (m_doc == nullptr || m_doc->sprite() == nullptr)
+  {
+    POSITION_TEXT("");
+    return;
+  }
+
+  gfx::Point root_position = m_doc->sprite()->frameRootPosition(m_frame);
+  POSITION_TEXT("frame (%d)'s root position : x(%d) y(%d)"
+    , m_frame, root_position.x, root_position.y);
+}
 
 } // namespace app

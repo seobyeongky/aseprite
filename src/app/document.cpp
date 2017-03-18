@@ -371,8 +371,10 @@ Document* Document::duplicate(DuplicateType type) const
   spriteCopy->setTotalFrames(sourceSprite->totalFrames());
 
   // Copy frames duration
-  for (frame_t i(0); i < sourceSprite->totalFrames(); ++i)
+  for (frame_t i(0); i < sourceSprite->totalFrames(); ++i) {
     spriteCopy->setFrameDuration(i, sourceSprite->frameDuration(i));
+    spriteCopy->setFrameRootPosition(i, sourceSprite->frameRootPosition(i));
+  }
 
   // Copy frame tags
   for (const FrameTag* tag : sourceSprite->frameTags())

@@ -16,6 +16,7 @@
 #include "ui/box.h"
 #include "app/pref/preferences.h"
 #include "app/ui/editor/editor_state.h"
+#include "doc/document_observer.h"
 
 namespace ui {
   class View;
@@ -34,12 +35,13 @@ namespace app {
 
   class StageEditor : public ui::Widget
                     , public Playable
+                    , public DocumentObserver
   {
   public:
     StageEditor();
     ~StageEditor();
 
-    void setDocument(Document* doc) {m_doc = doc;}
+    void setDocument(Document* doc);
     Document* getDoc() const {return m_doc;}
 
     // Playable implementation
@@ -50,6 +52,8 @@ namespace app {
     void stop() override;
     bool isPlaying() const override;
 
+    // DocumentObserver implementation
+    void onFrameRootPositionChanged(DocumentEvent& ev);
 
   protected:
     void onPaint(ui::PaintEvent& ev) override;
@@ -59,7 +63,6 @@ namespace app {
 
   private:
     static AppRender m_renderEngine;
-
 
     Document* m_doc;
     // Extra space around the sprite.
@@ -71,6 +74,7 @@ namespace app {
     gfx::Point m_pos;
     gfx::Point m_oldMousePos;
     gfx::Point m_delta;
+    gfx::Point m_previewPos;
 
     Palette* m_bgPal;
     DocumentPreferences m_docPref;
@@ -78,6 +82,7 @@ namespace app {
     bool m_isPlaying;
     frame_t m_frame;
     bool m_isScrolling;
+    bool m_isMoving;
 
     void drawBG(ui::PaintEvent& ev);
     void drawSprite(ui::Graphics* g
@@ -88,6 +93,7 @@ namespace app {
       , frame_t frame);
 
     FrameTag* currentFrameTag(Sprite * sprite);
+    void updatePositionText();
   };
 
 } // namespace app

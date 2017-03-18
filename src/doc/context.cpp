@@ -36,6 +36,9 @@ Site Context::activeSite() const
 
 Document* Context::activeDocument() const
 {
+  if (m_activeDoc != NULL) {
+    return m_activeDoc;
+  }
   Site site;
   onGetActiveSite(&site);
   return site.document();

@@ -57,6 +57,7 @@ namespace app {
     void setTotalFrames(Sprite* sprite, frame_t frames);
     void setFrameDuration(Sprite* sprite, frame_t frame, int msecs);
     void setFrameRangeDuration(Sprite* sprite, frame_t from, frame_t to, int msecs);
+    void setFrameRootPosition(Sprite* sprite, frame_t frame, const gfx::Point & p);
     void moveFrame(Sprite* sprite, frame_t frame, frame_t beforeFrame);
 
     // Cels API
