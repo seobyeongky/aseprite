@@ -71,6 +71,7 @@ namespace app {
     // Extra space around the sprite.
     gfx::Point m_padding;
     render::Projection m_proj;    // Zoom/pixel ratio in the editor
+    render::Zoom m_zoom;
     Image* m_doublebuf;
     she::Surface* m_doublesur;
 
@@ -100,14 +101,14 @@ namespace app {
       , const gfx::Rect& spriteRectToDraw
       , int dx
       , int dy
-      , Sprite* sprite
-      , frame_t frame);
+      , Sprite* sprite);
 
     FrameTag* currentFrameTag(Sprite* sprite);
     void updatePositionText();
     void onPlaybackTick();
     gfx::Point playTimePreviewPos(Sprite* sprite);
     void setCurrentFrameRootPosition();
+    gfx::Point calcExtraPadding();
   };
 
 } // namespace app

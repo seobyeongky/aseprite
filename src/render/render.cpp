@@ -764,6 +764,8 @@ void Render::renderOnionskin(
   const frame_t frame,
   const CompositeImageFunc compositeImage)
 {
+
+  gfx::Point baseRootPosition = m_sprite->frameRootPosition(frame);
   // Onion-skin feature: Draw previous/next frames with different
   // opacity (<255)
   if (m_onionskin.type() != OnionskinType::NONE) {
@@ -799,6 +801,12 @@ void Render::renderOnionskin(
         m_globalOpacity = m_onionskin.opacityBase() - m_onionskin.opacityStep() * ((frameOut - frame)-1);
       }
 
+      gfx::Clip frameArea(area);
+      if (m_onionskin.applyRootPosition()) {
+        gfx::Point rootPosition = m_sprite->frameRootPosition(frameIn);
+        frameArea.dst += rootPosition - baseRootPosition;
+      }
+
       m_globalOpacity = MID(0, m_globalOpacity, 255);
       if (m_globalOpacity > 0) {
         BlendMode blendMode = BlendMode::UNSPECIFIED;
@@ -809,7 +817,7 @@ void Render::renderOnionskin(
 
         renderLayer(
           onionLayer, dstImage,
-          area, frameIn, compositeImage,
+          frameArea, frameIn, compositeImage,
           // Render background only for "in-front" onion skinning and
           // when opacity is < 255
           (m_globalOpacity < 255 &&

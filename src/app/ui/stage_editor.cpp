@@ -60,6 +60,11 @@
 #include "doc/handle_anidir.h"
 #include "doc/site.h"
 #include "app/modules/playables.h"
+#include "render/render.h"
+#include "render/onionskin_position.h"
+
+const int WIDTH = 150;
+const int HEIGHT = 150;
 
 #define DEBUG_MSG App::instance()->mainWindow()->getStageView()->getDbgLabel()->setTextf
 #define POSITION_TEXT App::instance()->mainWindow()->getStageView()->getPositionLabel()->setTextf
@@ -83,14 +88,17 @@ StageEditor::StageEditor()
   , m_playTimer(10)
   , m_pingPongForward(false)
   , m_loopCount(0)
+  , m_zoom(1, 1)
 {
   m_playTimer.Tick.connect(&StageEditor::onPlaybackTick, this);
 }
 
 StageEditor::~StageEditor()
 {
-  m_doublesur->dispose();
-  delete m_doublebuf;
+  if (m_doublesur)
+    m_doublesur->dispose();
+  if (m_doublebuf)
+    delete m_doublebuf;
 }
 
 void StageEditor::setDocument(Document* doc)
@@ -139,16 +147,7 @@ void StageEditor::onResize(ui::ResizeEvent& ev)
 {
   Widget::onResize(ev);
 
-  if (m_doublebuf)
-  {
-    delete m_doublebuf;
-  }
-  m_doublebuf = Image::create(IMAGE_RGB, ev.bounds().w, ev.bounds().h);
-  if (m_doublesur)
-  {
-    m_doublesur->dispose();
-  }
-  m_doublesur = she::instance()->createRgbaSurface(ev.bounds().w, ev.bounds().h);
+  m_padding = calcExtraPadding();
 }
 
 frame_t StageEditor::frame()
@@ -222,6 +221,8 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
   Graphics* g = ev.graphics();
   SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
 
+  g->fillRegion(theme->colors.editorFace(), gfx::Region(clientBounds()));
+
   drawBG(ev);
 
   if (m_doc == nullptr || m_doc->sprite() == nullptr) {
@@ -232,45 +233,35 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
   auto frameTag = currentFrameTag(sprite);
 
   if (frameTag == nullptr) {
-    drawSprite(g
-      , gfx::Rect(0, 0, sprite->width(), sprite->height())
-      , 0
-      , 0
-      , sprite
-      , m_frame);
-
     return;
   }
 
-  if (m_isPlaying == false)
-  {
-    for (frame_t fr = frameTag->fromFrame(); fr <= frameTag->toFrame(); ++fr) {
-      if (fr == m_frame)
-        continue;
-
-      drawSprite(g
-        , gfx::Rect(0, 0, sprite->width(), sprite->height())
-        , sprite->frameRootPosition(fr).x
-        , sprite->frameRootPosition(fr).y
-        , sprite
-        , fr);
-    }
-  }
-
   gfx::Point previewPos = playTimePreviewPos(sprite);
-  if (previewPos.x < -clientBounds().center().x || previewPos.x > clientBounds().center().x)
+  if (previewPos.x < -WIDTH/2 || previewPos.x > WIDTH/2)
     m_loopCount = 0;
-  if (previewPos.y < -clientBounds().center().y || previewPos.y > clientBounds().center().y)
+  if (previewPos.y < -HEIGHT/2 || previewPos.y > HEIGHT/2)
     m_loopCount = 0;
 
   previewPos = playTimePreviewPos(sprite);
+  gfx::Rect spriteRect(0, 0, sprite->width(), sprite->height());
+
+  // For odd zoom scales minor than 100% we have to add an extra window
+  // just to make sure the whole rectangle is drawn.
+  if (m_proj.scaleX() < 1.0) spriteRect.w += int(1./m_proj.scaleX());
+  if (m_proj.scaleY() < 1.0) spriteRect.h += int(1./m_proj.scaleY());
 
   drawSprite(g
-    , gfx::Rect(0, 0, sprite->width(), sprite->height())
+    , spriteRect
     , previewPos.x
     , previewPos.y
-    , sprite
-    , m_frame);
+    , sprite);
+
+/*
+  gfx::Region outside(clientBounds());
+  outside.createSubtraction(outside, gfx::Region(
+    gfx::Rect(m_padding.x, m_padding.y, m_proj.applyX(WIDTH), m_proj.applyY(HEIGHT))));
+  g->fillRegion(theme->colors.editorFace(), outside);
+  */
 }
 
 gfx::Point StageEditor::playTimePreviewPos(Sprite* sprite) {
@@ -370,6 +361,23 @@ bool StageEditor::onProcessMessage(Message* msg)
       break;
 
     case kMouseWheelMessage:
+      {
+        MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg); 
+        bool dirty = false;
+        if (mouseMsg->wheelDelta().y < 0) {
+          m_zoom.in();
+          dirty = true;
+        }
+        else if (mouseMsg->wheelDelta().y > 0) {
+          m_zoom.out();
+          dirty = true;
+        }
+        if (dirty) {
+          m_proj.setZoom(m_zoom);
+          View::getView(this)->updateView();
+          //invalidate();
+        }
+      }
       break;
 
     case kSetCursorMessage:
@@ -384,8 +392,8 @@ void StageEditor::onSizeHint(SizeHintEvent& ev)
   gfx::Size sz(0, 0);
   if (m_doc != nullptr && m_doc->sprite() != nullptr)
   {
-    sz.w = 500;
-    sz.h = 500;
+    sz.w = 2 * calcExtraPadding().x + m_proj.applyX(WIDTH);
+    sz.h = 2 * calcExtraPadding().y + m_proj.applyY(HEIGHT);
   }
 
   ev.setSizeHint(sz);
@@ -426,37 +434,58 @@ void StageEditor::drawBG(ui::PaintEvent& ev)
       break;
   }
 
+  if (m_doublebuf)
+    delete m_doublebuf;
+
+  auto renderBuf = Editor::getRenderImageBuffer();
+  // Generate the rendered image
+  if (!renderBuf)
+    renderBuf.reset(new doc::ImageBuffer());
+
+  base::UniquePtr<Image> bgBuf(NULL);
+  bgBuf.reset(Image::create(IMAGE_RGB, m_proj.applyX(WIDTH), m_proj.applyY(HEIGHT), renderBuf));
+
   m_renderEngine.setBgType(bgType);
   m_renderEngine.setBgZoom(m_docPref.bg.zoom());
-  m_renderEngine.setBgColor1(color_utils::color_for_image(m_docPref.bg.color1(), m_doublebuf->pixelFormat()));
-  m_renderEngine.setBgColor2(color_utils::color_for_image(m_docPref.bg.color2(), m_doublebuf->pixelFormat()));
+  m_renderEngine.setBgColor1(color_utils::color_for_image(m_docPref.bg.color1(), bgBuf->pixelFormat()));
+  m_renderEngine.setBgColor2(color_utils::color_for_image(m_docPref.bg.color2(), bgBuf->pixelFormat()));
   m_renderEngine.setBgCheckedSize(tile);
 
   //m_renderEngine.setupBackground(m_doc, m_doublebuf->pixelFormat());
-  m_renderEngine.renderBackground(m_doublebuf,
-    gfx::Clip(0, 0, -m_pos.x, -m_pos.y,
-      m_doublebuf->width(), m_doublebuf->height()));
+  m_renderEngine.renderBackground(bgBuf,
+    gfx::Clip(0, 0, 0, 0,
+      bgBuf->width(), bgBuf->height()));
 
-  convert_image_to_surface(m_doublebuf, m_bgPal,
-    m_doublesur, 0, 0, 0, 0, m_doublebuf->width(), m_doublebuf->height());
-  g->blit(m_doublesur, 0, 0, 0, 0, m_doublesur->width(), m_doublesur->height()); 
+  if (m_doublesur == nullptr
+    || m_doublesur->width() != bgBuf->width()
+    || m_doublesur->height() != bgBuf->height()) {
+    if (m_doublesur)
+      m_doublesur->dispose();
+
+    m_doublesur = she::instance()->createSurface(m_proj.applyX(WIDTH), m_proj.applyY(HEIGHT));
+  }
+
+  convert_image_to_surface(bgBuf, m_bgPal,
+    m_doublesur, 0, 0, 0, 0, bgBuf->width(), bgBuf->height());
+  g->blit(m_doublesur, 0, 0, m_padding.x, m_padding.y
+    , m_proj.applyX(m_doublesur->width())
+    , m_proj.applyY(m_doublesur->height())); 
 }
 
 void StageEditor::drawSprite(ui::Graphics* g
   , const gfx::Rect& spriteRectToDraw
   , int dx
   , int dy
-  , Sprite * sprite
-  , frame_t frame)
+  , Sprite * sprite)
 {
   // Clip from sprite and apply zoom
   gfx::Rect rc = sprite->bounds().createIntersection(spriteRectToDraw);
   rc = m_proj.apply(rc);
 
-  int dest_x = dx + m_padding.x + rc.x + clientBounds().center().x;
-  int dest_y = dy + m_padding.y + rc.y + clientBounds().center().y;
+  int dest_x = dx + m_padding.x + rc.x + m_proj.applyX(WIDTH)/2 - spriteRectToDraw.w/2;
+  int dest_y = dy + m_padding.y + rc.y + m_proj.applyY(HEIGHT)/2 - spriteRectToDraw.h/2;
 
-  // Clip from graphics/screen
+    // Clip from graphics/screen
   const gfx::Rect& clip = g->getClipBounds();
   if (dest_x < clip.x) {
     rc.x += clip.x - dest_x;
@@ -478,6 +507,7 @@ void StageEditor::drawSprite(ui::Graphics* g
   if (rc.isEmpty())
     return;
 
+  FrameTag* tag = currentFrameTag(sprite);
   auto renderBuf = Editor::getRenderImageBuffer();
   // Generate the rendered image
   if (!renderBuf)
@@ -485,33 +515,6 @@ void StageEditor::drawSprite(ui::Graphics* g
 
   base::UniquePtr<Image> rendered(NULL);
   try {
-    // Generate a "expose sprite pixels" notification. This is used by
-    // tool managers that need to validate this region (copy pixels from
-    // the original cel) before it can be used by the RenderEngine.
-    {
-      gfx::Rect expose = m_proj.remove(rc);
-
-      // If the zoom level is less than 100%, we add extra pixels to
-      // the exposed area. Those pixels could be shown in the
-      // rendering process depending on each cel position.
-      // E.g. when we are drawing in a cel with position < (0,0)
-      if (m_proj.scaleX() < 1.0)
-        expose.enlargeXW(int(1./m_proj.scaleX()));
-      // If the zoom level is more than %100 we add an extra pixel to
-      // expose just in case the zoom requires to display it.  Note:
-      // this is really necessary to avoid showing invalid destination
-      // areas in ToolLoopImpl.
-      else if (m_proj.scaleX() > 1.0)
-        expose.enlargeXW(1);
-
-      if (m_proj.scaleY() < 1.0)
-        expose.enlargeYH(int(1./m_proj.scaleY()));
-      else if (m_proj.scaleY() > 1.0)
-        expose.enlargeYH(1);
-
-      m_doc->notifyExposeSpritePixels(sprite, gfx::Region(expose));
-    }
-
     // Create a temporary RGBA bitmap to draw all to it
     rendered.reset(Image::create(IMAGE_RGB, rc.w, rc.h, renderBuf));
 
@@ -520,11 +523,25 @@ void StageEditor::drawSprite(ui::Graphics* g
     m_renderEngine.setNonactiveLayersOpacity(255);
     m_renderEngine.setProjection(m_proj);
     m_renderEngine.setupBackground(m_doc, rendered->pixelFormat());
-    m_renderEngine.disableOnionskin();
+    if (!m_isPlaying) {
+      render::OnionskinOptions opts(render::OnionskinType::MERGE);
+      opts.position(render::OnionskinPosition::BEHIND);
+      opts.prevFrames(m_frame - tag->fromFrame());
+      opts.nextFrames(tag->toFrame() - m_frame);
+      opts.opacityBase(100);
+      opts.opacityStep(100);
+      opts.layer(nullptr);
+      opts.loopTag(tag);
+      opts.applyRootPosition(true);
+      m_renderEngine.setOnionskin(opts);
+    }
+    else {
+      m_renderEngine.disableOnionskin();
+    }
     m_renderEngine.setBgType(render::BgType::TRANSPARENT);
 
     m_renderEngine.renderSprite(
-      rendered, sprite, frame, gfx::Clip(0, 0, rc));
+      rendered, sprite, m_frame, gfx::Clip(0, 0, rc));
 
     m_renderEngine.removeExtraImage();
   }
@@ -543,7 +560,7 @@ void StageEditor::drawSprite(ui::Graphics* g
     }
 
     if (tmp->nativeHandle()) {
-      convert_image_to_surface(rendered, sprite->palette(frame),
+      convert_image_to_surface(rendered, sprite->palette(m_frame),
         tmp, 0, 0, 0, 0, rc.w, rc.h);
 
       g->drawRgbaSurface(tmp, dest_x, dest_y);
@@ -608,6 +625,19 @@ void StageEditor::onPlaybackTick()
   }
 
   m_curFrameTick = base::current_tick();
+}
+
+gfx::Point StageEditor::calcExtraPadding()
+{
+  View* view = View::getView(this);
+  if (view) {
+    gfx::Rect vp = view->viewportBounds();
+    return gfx::Point(
+      std::max<int>(vp.w/2, vp.w - m_proj.applyX(WIDTH)),
+      std::max<int>(vp.h/2, vp.h - m_proj.applyY(HEIGHT)));
+  }
+  else
+    return gfx::Point(0, 0);
 }
 
 } // namespace app

@@ -54,7 +54,8 @@ namespace render {
       , m_opacityBase(0)
       , m_opacityStep(0)
       , m_loopTag(nullptr)
-      , m_layer(nullptr) {
+      , m_layer(nullptr)
+      , m_applyRootPosition(false) {
     }
 
     OnionskinType type() const { return m_type; }
@@ -65,6 +66,7 @@ namespace render {
     int opacityStep() const { return m_opacityStep; }
     FrameTag* loopTag() const { return m_loopTag; }
     Layer* layer() const { return m_layer; }
+    bool applyRootPosition() const { return m_applyRootPosition; }
 
     void type(OnionskinType type) { m_type = type; }
     void position(OnionskinPosition position) { m_position = position; }
@@ -74,6 +76,7 @@ namespace render {
     void opacityStep(int step) { m_opacityStep = step; }
     void loopTag(FrameTag* loopTag) { m_loopTag = loopTag; }
     void layer(Layer* layer) { m_layer = layer; }
+    void applyRootPosition(bool applyRootPosition) { m_applyRootPosition = applyRootPosition; }
 
   private:
     OnionskinType m_type;
@@ -84,6 +87,7 @@ namespace render {
     int m_opacityStep;
     FrameTag* m_loopTag;
     Layer* m_layer;
+    bool m_applyRootPosition;
   };
 
   typedef void (*CompositeImageFunc)(
