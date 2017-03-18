@@ -66,6 +66,8 @@ using namespace app::skin;
 StageView::StageView()
   : m_stageEditor(new StageEditor())
 {
+  resetBtn()->Click.connect(base::Bind<void>(&StageEditor::onPositionResetButtonClick, m_stageEditor));
+
   m_dbgLabel = new Label("debug");
   dbgBox()->addChild(m_dbgLabel);
 

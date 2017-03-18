@@ -82,6 +82,7 @@ StageEditor::StageEditor()
   , m_isMoving(false)
   , m_playTimer(10)
   , m_pingPongForward(false)
+  , m_loopCount(0)
 {
   m_playTimer.Tick.connect(&StageEditor::onPlaybackTick, this);
 }
@@ -111,6 +112,27 @@ void StageEditor::getSite(Site* site)
       site->frame(m_frame);
     }
   }
+}
+
+void StageEditor::onPositionResetButtonClick()
+{
+  if (m_doc == nullptr || m_doc->sprite() == nullptr)
+    return;
+
+  m_previewPos = gfx::Point(0, 0);
+  setCurrentFrameRootPosition();
+}
+
+void StageEditor::setCurrentFrameRootPosition()
+{
+  app::Context* context = static_cast<app::Context*>(m_doc->context());
+  context->setActiveDocument(m_doc);
+  const ContextReader reader(context);
+  ContextWriter writer(reader, 500);
+  Transaction transaction(writer.context(), "set frame root position", ModifyDocument);
+  DocumentApi api = m_doc->getApi(transaction); 
+  api.setFrameRootPosition(m_doc->sprite(), m_frame, m_previewPos);
+  transaction.commit();
 }
 
 void StageEditor::onResize(ui::ResizeEvent& ev)
@@ -157,6 +179,7 @@ void StageEditor::play(const bool playOnce,
   {
     m_nextFrameTime = m_doc->sprite()->frameDuration(m_frame);
     m_curFrameTick = base::current_tick();
+    m_loopCount = 0;
     if (!m_playTimer.isRunning())
       m_playTimer.start();
   }
@@ -166,6 +189,7 @@ void StageEditor::stop()
 {
   m_playTimer.stop();
   m_isPlaying = false;
+  m_loopCount = 0;
 }
 
 bool StageEditor::isPlaying() const
@@ -175,8 +199,8 @@ bool StageEditor::isPlaying() const
 
 void StageEditor::onFrameRootPositionChanged(DocumentEvent& ev)
 {
-  // just redraw
   m_previewPos = ev.sprite()->frameRootPosition(m_frame);
+  updatePositionText();
   invalidate();
 }
 
@@ -233,12 +257,28 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
     }
   }
 
+  gfx::Point previewPos = playTimePreviewPos(sprite);
+  if (previewPos.x < -clientBounds().center().x || previewPos.x > clientBounds().center().x)
+    m_loopCount = 0;
+  if (previewPos.y < -clientBounds().center().y || previewPos.y > clientBounds().center().y)
+    m_loopCount = 0;
+
+  previewPos = playTimePreviewPos(sprite);
+
   drawSprite(g
     , gfx::Rect(0, 0, sprite->width(), sprite->height())
-    , m_previewPos.x
-    , m_previewPos.y
+    , previewPos.x
+    , previewPos.y
     , sprite
     , m_frame);
+}
+
+gfx::Point StageEditor::playTimePreviewPos(Sprite* sprite) {
+  FrameTag* tag = currentFrameTag(sprite);
+  gfx::Point delta = sprite->frameRootPosition(tag->toFrame())
+    + sprite->frameRootPosition(tag->fromFrame());
+  return gfx::Point(m_previewPos.x + delta.x * m_loopCount
+    , m_previewPos.y + delta.y * m_loopCount);
 }
 
 bool StageEditor::onProcessMessage(Message* msg)
@@ -305,14 +345,7 @@ bool StageEditor::onProcessMessage(Message* msg)
         return true;
       } else if (m_isMoving) {
         if (m_doc != nullptr && m_doc->sprite() != nullptr) {
-          app::Context* context = static_cast<app::Context*>(m_doc->context());
-          context->setActiveDocument(m_doc);
-          const ContextReader reader(context);
-          ContextWriter writer(reader, 500);
-          Transaction transaction(writer.context(), "set frame root position", ModifyDocument);
-          DocumentApi api = m_doc->getApi(transaction); 
-          api.setFrameRootPosition(m_doc->sprite(), m_frame, m_previewPos);
-          transaction.commit();
+          setCurrentFrameRootPosition();
         }
 
         releaseMouse();
@@ -526,9 +559,8 @@ void StageEditor::updatePositionText()
     return;
   }
 
-  gfx::Point root_position = m_doc->sprite()->frameRootPosition(m_frame);
   POSITION_TEXT("frame %d root position : %d %d"
-    , m_frame, root_position.x, root_position.y);
+    , m_frame, m_previewPos.x, m_previewPos.y);
 }
 
 void StageEditor::onPlaybackTick()
@@ -546,29 +578,26 @@ void StageEditor::onPlaybackTick()
   FrameTag* tag = currentFrameTag(sprite);
 
   while (m_nextFrameTime <= 0) {
-    if (false) {
-      bool atEnd = false;
-      if (tag) {
-        switch (tag->aniDir()) {
-          case AniDir::FORWARD:
-            atEnd = (m_frame == tag->toFrame());
-            break;
-          case AniDir::REVERSE:
-            atEnd = (m_frame == tag->fromFrame());
-            break;
-          case AniDir::PING_PONG:
-            atEnd = (!m_pingPongForward &&
-                     m_frame == tag->fromFrame());
-            break;
-        }
+    bool atEnd = false;
+    if (tag) {
+      switch (tag->aniDir()) {
+        case AniDir::FORWARD:
+          atEnd = (m_frame == tag->toFrame());
+          break;
+        case AniDir::REVERSE:
+          atEnd = (m_frame == tag->fromFrame());
+          break;
+        case AniDir::PING_PONG:
+          atEnd = (!m_pingPongForward &&
+                   m_frame == tag->fromFrame());
+          break;
       }
-      else {
-        atEnd = (m_frame == sprite->lastFrame());
-      }
-      if (atEnd) {
-        stop();
-        break;
-      }
+    }
+    else {
+      atEnd = (m_frame == sprite->lastFrame());
+    }
+    if (atEnd) {
+      m_loopCount++;
     }
 
     setFrame(calculate_next_frame(

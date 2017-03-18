@@ -45,6 +45,7 @@ namespace app {
     void setDocument(Document* doc);
     Document* getDoc() const {return m_doc;}
     void getSite(Site* site);
+    void onPositionResetButtonClick();
 
     // Playable implementation
     frame_t frame() override;
@@ -92,6 +93,7 @@ namespace app {
     double m_nextFrameTime;
     base::tick_t m_curFrameTick;
     bool m_pingPongForward;
+    int m_loopCount;
 
     void drawBG(ui::PaintEvent& ev);
     void drawSprite(ui::Graphics* g
@@ -101,9 +103,11 @@ namespace app {
       , Sprite* sprite
       , frame_t frame);
 
-    FrameTag* currentFrameTag(Sprite * sprite);
+    FrameTag* currentFrameTag(Sprite* sprite);
     void updatePositionText();
     void onPlaybackTick();
+    gfx::Point playTimePreviewPos(Sprite* sprite);
+    void setCurrentFrameRootPosition();
   };
 
 } // namespace app

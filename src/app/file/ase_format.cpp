@@ -83,8 +83,8 @@ struct ASE_FrameHeader {
   uint16_t magic;
   uint16_t chunks;
   uint16_t duration;
-  uint16_t root_x;
-  uint16_t root_y;
+  int16_t root_x;
+  int16_t root_y;
 };
 
 struct ASE_Chunk {
