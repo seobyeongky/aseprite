@@ -25,6 +25,7 @@ namespace ui {
 namespace doc {
   class Palette;
   class FrameTag;
+  class Site;
 }
 
 namespace render {
@@ -43,6 +44,7 @@ namespace app {
 
     void setDocument(Document* doc);
     Document* getDoc() const {return m_doc;}
+    void getSite(Site* site);
 
     // Playable implementation
     frame_t frame() override;
@@ -84,6 +86,13 @@ namespace app {
     bool m_isScrolling;
     bool m_isMoving;
 
+    ui::Timer m_playTimer;
+    // Number of milliseconds to go to the next frame if m_playTimer
+    // is activated.
+    double m_nextFrameTime;
+    base::tick_t m_curFrameTick;
+    bool m_pingPongForward;
+
     void drawBG(ui::PaintEvent& ev);
     void drawSprite(ui::Graphics* g
       , const gfx::Rect& spriteRectToDraw
@@ -94,6 +103,7 @@ namespace app {
 
     FrameTag* currentFrameTag(Sprite * sprite);
     void updatePositionText();
+    void onPlaybackTick();
   };
 
 } // namespace app

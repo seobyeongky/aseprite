@@ -367,6 +367,7 @@ add_library(app-lib
   loop_tag.cpp
   modules.cpp
   modules/editors.cpp
+  modules/playables.cpp
   modules/gfx.cpp
   modules/gui.cpp
   modules/palettes.cpp

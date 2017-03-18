@@ -53,6 +53,9 @@
 #include "app/ui/editor/zooming_state.h"
 #include "app/ui/status_bar.h"
 #include "app/modules/gui.h"
+#include "doc/site.h"
+#include "app/modules/playables.h"
+
 
 namespace app {
 
@@ -105,6 +108,10 @@ void StageView::updateUsingEditor(Editor* editor)
   m_stageEditor->setDocument(editor->document());
 }
 
+void StageView::getSite(Site* site)
+{
+  m_stageEditor->getSite(site);
+}
 
 std::string StageView::getTabText()
 {
@@ -138,6 +145,13 @@ void StageView::onWorkspaceViewSelected()
 void StageView::onResize(ui::ResizeEvent& ev)
 {
   ui::VBox::onResize(ev);
+}
+
+void StageView::onVisible(bool visible)
+{
+  if (visible) {
+    current_playable = m_stageEditor;
+  }
 }
 
 } // namespace app

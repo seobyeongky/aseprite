@@ -11,6 +11,7 @@
 #include "app/app.h"
 #include "app/document.h"
 #include "app/modules/editors.h"
+#include "app/modules/playables.h"
 #include "app/pref/preferences.h"
 #include "app/ui/color_bar.h"
 #include "app/ui/document_view.h"
@@ -76,6 +77,22 @@ DocumentView* UIContext::activeView() const
     return nullptr;
 }
 
+StageView* UIContext::activeStageView() const
+{
+  if (!isUIAvailable())
+    return nullptr;
+
+  Workspace* workspace = App::instance()->workspace();
+  if (!workspace)
+    return nullptr;
+
+  WorkspaceView* view = workspace->activeView();
+  if (StageView* stageView = dynamic_cast<StageView*>(view))
+    return stageView;
+  else
+    return nullptr;
+}
+
 void UIContext::setActiveView(DocumentView* docView)
 {
   MainWindow* mainWin = App::instance()->mainWindow();
@@ -97,6 +114,8 @@ void UIContext::setActiveView(DocumentView* docView)
   }
 
   current_editor = (docView ? docView->editor(): nullptr);
+  if (current_editor != nullptr || current_playable == current_editor)
+    current_playable = current_editor;
 
   if (current_editor)
     current_editor->requestFocus();
@@ -219,42 +238,50 @@ void UIContext::onRemoveDocument(doc::Document* doc)
 
 void UIContext::onGetActiveSite(Site* site) const
 {
-  DocumentView* view = activeView();
-  if (view) {
-    view->getSite(site);
-
-    if (site->sprite()) {
-      // Selected layers
-      Timeline* timeline = App::instance()->timeline();
-      if (timeline &&
-          timeline->range().enabled()) {
-        switch (timeline->range().type()) {
-          case DocumentRange::kCels:   site->focus(Site::InCels); break;
-          case DocumentRange::kFrames: site->focus(Site::InFrames); break;
-          case DocumentRange::kLayers: site->focus(Site::InLayers); break;
-        }
-        site->selectedLayers(timeline->selectedLayers());
-        site->selectedFrames(timeline->selectedFrames());
-      }
-      else {
-        ColorBar* colorBar = ColorBar::instance();
-        if (colorBar &&
-            colorBar->getPaletteView()->getSelectedEntriesCount() > 0) {
-          site->focus(Site::InColorBar);
-        }
-        else {
-          site->focus(Site::InEditor);
-        }
-      }
-    }
-  }
   // Default/dummy site (maybe for batch/command line mode)
-  else if (!isUIAvailable()) {
+  if (!isUIAvailable()) {
     if (Document* doc = m_lastSelectedDoc) {
       site->document(doc);
       site->sprite(doc->sprite());
       site->layer(doc->sprite()->root()->firstLayer());
       site->frame(0);
+    }
+
+    return;
+  }
+
+  DocumentView* view = activeView();
+  StageView* stageView = activeStageView();
+  if (view == nullptr && stageView == nullptr)
+    return;
+
+  if (view)
+    view->getSite(site);
+  else if (stageView)
+    stageView->getSite(site);
+
+  if (site->sprite()) {
+    // Selected layers
+    Timeline* timeline = App::instance()->timeline();
+    if (timeline &&
+        timeline->range().enabled()) {
+      switch (timeline->range().type()) {
+        case DocumentRange::kCels:   site->focus(Site::InCels); break;
+        case DocumentRange::kFrames: site->focus(Site::InFrames); break;
+        case DocumentRange::kLayers: site->focus(Site::InLayers); break;
+      }
+      site->selectedLayers(timeline->selectedLayers());
+      site->selectedFrames(timeline->selectedFrames());
+    }
+    else {
+      ColorBar* colorBar = ColorBar::instance();
+      if (colorBar &&
+          colorBar->getPaletteView()->getSelectedEntriesCount() > 0) {
+        site->focus(Site::InColorBar);
+      }
+      else {
+        site->focus(Site::InEditor);
+      }
     }
   }
 }

@@ -11,7 +11,7 @@
 #include "app/commands/command.h"
 #include "app/context.h"
 #include "app/context_access.h"
-#include "app/modules/editors.h"
+#include "app/modules/playables.h"
 #include "app/pref/preferences.h"
 #include "app/ui/editor/editor.h"
 
@@ -38,8 +38,7 @@ PlayAnimationCommand::PlayAnimationCommand()
 
 bool PlayAnimationCommand::onEnabled(Context* context)
 {
-  return context->checkFlags(ContextFlags::ActiveDocumentIsWritable |
-                             ContextFlags::HasActiveSprite);
+  return context->checkFlags(ContextFlags::HasActiveSprite);
 }
 
 void PlayAnimationCommand::onExecute(Context* context)
@@ -52,14 +51,14 @@ void PlayAnimationCommand::onExecute(Context* context)
       return;
   }
 
-  ASSERT(current_editor);
-  if (!current_editor)
+  ASSERT(current_playable);
+  if (!current_playable)
     return;
 
-  if (current_editor->isPlaying())
-    current_editor->stop();
+  if (current_playable->isPlaying())
+    current_playable->stop();
   else
-    current_editor->play(Preferences::instance().editor.playOnce(),
+    current_playable->play(Preferences::instance().editor.playOnce(),
                          Preferences::instance().editor.playAll());
 }
 

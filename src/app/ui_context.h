@@ -14,6 +14,7 @@
 namespace app {
   class DocumentView;
   class Editor;
+  class StageView;
 
   typedef std::vector<DocumentView*> DocumentViews;
 
@@ -27,6 +28,7 @@ namespace app {
     bool isUIAvailable() const override;
 
     DocumentView* activeView() const;
+    StageView* activeStageView() const;
     void setActiveView(DocumentView* documentView);
     void setActiveDocument(Document* document);
 

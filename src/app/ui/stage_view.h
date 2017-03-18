@@ -25,6 +25,7 @@ namespace ui {
 }
 namespace doc{
   class Palette;
+  class Site;
 }
 
 namespace app {
@@ -41,6 +42,7 @@ namespace app {
     ~StageView();
 
     void updateUsingEditor(Editor* editor);
+    void getSite(Site* site);
 
     // TabView implementation
     std::string getTabText() override;
@@ -57,6 +59,7 @@ namespace app {
 
   protected:
     void onResize(ui::ResizeEvent& ev) override;
+    void onVisible(bool visible) override;
 
   private:
     StageEditor* m_stageEditor;

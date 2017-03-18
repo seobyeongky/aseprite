@@ -57,6 +57,9 @@
 #include "doc/context.h"
 #include "app/transaction.h"
 #include "app/document_api.h"
+#include "doc/handle_anidir.h"
+#include "doc/site.h"
+#include "app/modules/playables.h"
 
 #define DEBUG_MSG App::instance()->mainWindow()->getStageView()->getDbgLabel()->setTextf
 #define POSITION_TEXT App::instance()->mainWindow()->getStageView()->getPositionLabel()->setTextf
@@ -77,7 +80,10 @@ StageEditor::StageEditor()
   , m_frame(0)
   , m_isScrolling(false)
   , m_isMoving(false)
+  , m_playTimer(10)
+  , m_pingPongForward(false)
 {
+  m_playTimer.Tick.connect(&StageEditor::onPlaybackTick, this);
 }
 
 StageEditor::~StageEditor()
@@ -93,6 +99,18 @@ void StageEditor::setDocument(Document* doc)
   }
   m_doc = doc;
   m_doc->add_observer(this);
+}
+
+void StageEditor::getSite(Site* site)
+{
+  site->document(m_doc);
+  if (m_doc) {
+    site->sprite(m_doc->sprite());
+    if (m_doc->sprite()) {
+      site->layer(m_doc->sprite()->firstBrowsableLayer());
+      site->frame(m_frame);
+    }
+  }
 }
 
 void StageEditor::onResize(ui::ResizeEvent& ev)
@@ -134,11 +152,20 @@ void StageEditor::setFrame(frame_t frame)
 void StageEditor::play(const bool playOnce,
           const bool playAll)
 {
+  m_isPlaying = true;
+  if (m_doc != nullptr && m_doc->sprite() != nullptr)
+  {
+    m_nextFrameTime = m_doc->sprite()->frameDuration(m_frame);
+    m_curFrameTick = base::current_tick();
+    if (!m_playTimer.isRunning())
+      m_playTimer.start();
+  }
 }
 
 void StageEditor::stop()
 {
-
+  m_playTimer.stop();
+  m_isPlaying = false;
 }
 
 bool StageEditor::isPlaying() const
@@ -191,16 +218,19 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
     return;
   }
 
-  for (frame_t fr = frameTag->fromFrame(); fr <= frameTag->toFrame(); ++fr) {
-    if (fr == m_frame)
-      continue;
+  if (m_isPlaying == false)
+  {
+    for (frame_t fr = frameTag->fromFrame(); fr <= frameTag->toFrame(); ++fr) {
+      if (fr == m_frame)
+        continue;
 
-    drawSprite(g
-      , gfx::Rect(0, 0, sprite->width(), sprite->height())
-      , sprite->frameRootPosition(fr).x
-      , sprite->frameRootPosition(fr).y
-      , sprite
-      , fr);
+      drawSprite(g
+        , gfx::Rect(0, 0, sprite->width(), sprite->height())
+        , sprite->frameRootPosition(fr).x
+        , sprite->frameRootPosition(fr).y
+        , sprite
+        , fr);
+    }
   }
 
   drawSprite(g
@@ -327,6 +357,7 @@ void StageEditor::onSizeHint(SizeHintEvent& ev)
 
   ev.setSizeHint(sz);
 }
+
 
 void StageEditor::drawBG(ui::PaintEvent& ev)
 {
@@ -496,8 +527,58 @@ void StageEditor::updatePositionText()
   }
 
   gfx::Point root_position = m_doc->sprite()->frameRootPosition(m_frame);
-  POSITION_TEXT("frame (%d)'s root position : x(%d) y(%d)"
+  POSITION_TEXT("frame %d root position : %d %d"
     , m_frame, root_position.x, root_position.y);
+}
+
+void StageEditor::onPlaybackTick()
+{
+  if (m_nextFrameTime < 0)
+    return;
+
+  if (m_doc == nullptr || m_doc->sprite() == nullptr)
+  {
+    return;
+  }
+
+  m_nextFrameTime -= (base::current_tick() - m_curFrameTick);
+  Sprite* sprite = m_doc->sprite();
+  FrameTag* tag = currentFrameTag(sprite);
+
+  while (m_nextFrameTime <= 0) {
+    if (false) {
+      bool atEnd = false;
+      if (tag) {
+        switch (tag->aniDir()) {
+          case AniDir::FORWARD:
+            atEnd = (m_frame == tag->toFrame());
+            break;
+          case AniDir::REVERSE:
+            atEnd = (m_frame == tag->fromFrame());
+            break;
+          case AniDir::PING_PONG:
+            atEnd = (!m_pingPongForward &&
+                     m_frame == tag->fromFrame());
+            break;
+        }
+      }
+      else {
+        atEnd = (m_frame == sprite->lastFrame());
+      }
+      if (atEnd) {
+        stop();
+        break;
+      }
+    }
+
+    setFrame(calculate_next_frame(
+      sprite, m_frame, frame_t(1), tag,
+      m_pingPongForward));
+
+    m_nextFrameTime += sprite->frameDuration(m_frame);
+  }
+
+  m_curFrameTick = base::current_tick();
 }
 
 } // namespace app

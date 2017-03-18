@@ -16,6 +16,7 @@
 #include "app/document_access.h"
 #include "app/document_range.h"
 #include "app/modules/editors.h"
+#include "app/modules/playables.h"
 #include "app/modules/gfx.h"
 #include "app/modules/gui.h"
 #include "app/modules/palettes.h"
@@ -103,7 +104,7 @@ void AniControls::onClickButton()
   Command* cmd = CommandsModule::instance()->getCommandByName(getCommandId(item));
   if (cmd) {
     UIContext::instance()->executeCommand(cmd);
-    updateUsingPlayable(current_editor);
+    updateUsingPlayable(current_playable);
   }
 }
 
