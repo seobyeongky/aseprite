@@ -75,15 +75,14 @@ namespace app {
     Image* m_doublebuf;
     she::Surface* m_doublesur;
 
-    gfx::Point m_pos;
     gfx::Point m_oldMousePos;
-    gfx::Point m_delta;
-    gfx::Point m_previewPos;
+    gfx::Point m_previewPos; // edit session only
 
     Palette* m_bgPal;
     DocumentPreferences m_docPref;
 
     bool m_isPlaying;
+    bool m_isWalking;
     frame_t m_frame;
     bool m_isScrolling;
     bool m_isMoving;
@@ -94,7 +93,7 @@ namespace app {
     double m_nextFrameTime;
     base::tick_t m_curFrameTick;
     bool m_pingPongForward;
-    int m_loopCount;
+    gfx::Point m_charMovedDelta;
 
     void drawBG(ui::PaintEvent& ev);
     void drawSprite(ui::Graphics* g
@@ -106,9 +105,12 @@ namespace app {
     FrameTag* currentFrameTag(Sprite* sprite);
     void updatePositionText();
     void onPlaybackTick();
-    gfx::Point playTimePreviewPos(Sprite* sprite);
     void setCurrentFrameRootPosition();
     gfx::Point calcExtraPadding();
+
+    void walk(const char * tagPostfix);
+    gfx::Point rootPositionDelta(Sprite* sprite, frame_t frame);
+    gfx::Point calcCharPos(Sprite* sprite);
   };
 
 } // namespace app

@@ -76,18 +76,21 @@ using namespace app::skin;
 
 AppRender StageEditor::m_renderEngine;
 
+
+
+
 StageEditor::StageEditor()
   : m_doublebuf(nullptr)
   , m_doublesur(nullptr)
   , m_bgPal(Palette::createGrayscale())
   , m_docPref("")
   , m_isPlaying(false)
+  , m_isWalking(false)
   , m_frame(0)
   , m_isScrolling(false)
   , m_isMoving(false)
   , m_playTimer(10)
   , m_pingPongForward(false)
-  , m_loopCount(0)
   , m_zoom(1, 1)
 {
   m_playTimer.Tick.connect(&StageEditor::onPlaybackTick, this);
@@ -178,7 +181,6 @@ void StageEditor::play(const bool playOnce,
   {
     m_nextFrameTime = m_doc->sprite()->frameDuration(m_frame);
     m_curFrameTick = base::current_tick();
-    m_loopCount = 0;
     if (!m_playTimer.isRunning())
       m_playTimer.start();
   }
@@ -188,7 +190,9 @@ void StageEditor::stop()
 {
   m_playTimer.stop();
   m_isPlaying = false;
-  m_loopCount = 0;
+  m_isWalking = false;
+  m_charMovedDelta = gfx::Point(0, 0);
+  invalidate();
 }
 
 bool StageEditor::isPlaying() const
@@ -236,24 +240,38 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
     return;
   }
 
-  gfx::Point previewPos = playTimePreviewPos(sprite);
-  if (previewPos.x < -m_proj.applyX(WIDTH)/2 || previewPos.x > m_proj.applyX(WIDTH)/2)
-    m_loopCount = 0;
-  if (previewPos.y < -m_proj.applyY(HEIGHT)/2 || previewPos.y > m_proj.applyY(HEIGHT)/2)
-    m_loopCount = 0;
-
-  previewPos = playTimePreviewPos(sprite);
   gfx::Rect spriteRect(0, 0, sprite->width(), sprite->height());
-
   // For odd zoom scales minor than 100% we have to add an extra window
   // just to make sure the whole rectangle is drawn.
   if (m_proj.scaleX() < 1.0) spriteRect.w += int(1./m_proj.scaleX());
   if (m_proj.scaleY() < 1.0) spriteRect.h += int(1./m_proj.scaleY());
 
+  gfx::Point spritePos;
+  if (m_isPlaying) {
+    spritePos = calcCharPos(sprite);
+    if (spritePos.x < -m_proj.applyX(WIDTH)/2)
+      m_charMovedDelta.x += m_proj.applyX(WIDTH);
+
+    if (spritePos.x > m_proj.applyX(WIDTH)/2)
+      m_charMovedDelta.x -= m_proj.applyX(WIDTH);
+
+    if (spritePos.y < -m_proj.applyY(HEIGHT)/2)
+      m_charMovedDelta.y += m_proj.applyY(HEIGHT);
+
+    if (spritePos.y > m_proj.applyY(HEIGHT)/2)
+      m_charMovedDelta.y -= m_proj.applyY(HEIGHT);
+
+    // Update char pos
+    spritePos = calcCharPos(sprite);
+  }
+  else {
+    spritePos = m_previewPos;
+  }
+
   drawSprite(g
     , spriteRect
-    , previewPos.x
-    , previewPos.y
+    , spritePos.x
+    , spritePos.y
     , sprite);
 
 /*
@@ -264,12 +282,9 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
   */
 }
 
-gfx::Point StageEditor::playTimePreviewPos(Sprite* sprite) {
-  FrameTag* tag = currentFrameTag(sprite);
-  gfx::Point delta = sprite->frameRootPosition(tag->toFrame())
-    + sprite->frameRootPosition(tag->fromFrame());
-  return gfx::Point(m_previewPos.x + delta.x * m_loopCount
-    , m_previewPos.y + delta.y * m_loopCount);
+gfx::Point StageEditor::calcCharPos(Sprite* sprite) {
+  return m_previewPos + m_charMovedDelta
+    - sprite->frameRootPosition(m_frame);
 }
 
 bool StageEditor::onProcessMessage(Message* msg)
@@ -293,7 +308,7 @@ bool StageEditor::onProcessMessage(Message* msg)
           captureMouse();
           m_isScrolling = true;
           return true;
-        } else if (mouseMsg->left()) {
+        } else if (mouseMsg->left() && !m_isPlaying) {
           m_oldMousePos = mouseMsg->position();
           captureMouse();
           m_isMoving = true;
@@ -352,9 +367,39 @@ bool StageEditor::onProcessMessage(Message* msg)
       break;
 
     case kKeyDownMessage:
+      {
+        KeyMessage* keyMsg = static_cast<KeyMessage*>(msg);  
+        if (keyMsg->scancode() == kKeyDown) {
+          walk("_d");
+          return true;
+        }
+        else if (keyMsg->scancode() == kKeyUp) {
+          walk("_u");
+          return true;
+        }
+        else if (keyMsg->scancode() == kKeyLeft) {
+          walk("_l");
+          return true;
+        }
+        else if (keyMsg->scancode() == kKeyRight) {
+          walk("_r");
+          return true;
+        }
+      }
       break;
 
     case kKeyUpMessage:
+      {
+        KeyMessage* keyMsg = static_cast<KeyMessage*>(msg);  
+        if (keyMsg->scancode() == kKeyDown
+          || keyMsg->scancode() == kKeyUp
+          || keyMsg->scancode() == kKeyLeft
+          || keyMsg->scancode() == kKeyRight) {
+          m_isWalking = false;
+          m_playTimer.stop();
+          return true;
+        }
+      }
       break;
 
     case kFocusLeaveMessage:
@@ -595,32 +640,12 @@ void StageEditor::onPlaybackTick()
   FrameTag* tag = currentFrameTag(sprite);
 
   while (m_nextFrameTime <= 0) {
-    bool atEnd = false;
-    if (tag) {
-      switch (tag->aniDir()) {
-        case AniDir::FORWARD:
-          atEnd = (m_frame == tag->toFrame());
-          break;
-        case AniDir::REVERSE:
-          atEnd = (m_frame == tag->fromFrame());
-          break;
-        case AniDir::PING_PONG:
-          atEnd = (!m_pingPongForward &&
-                   m_frame == tag->fromFrame());
-          break;
-      }
-    }
-    else {
-      atEnd = (m_frame == sprite->lastFrame());
-    }
-    if (atEnd) {
-      m_loopCount++;
-    }
-
     setFrame(calculate_next_frame(
       sprite, m_frame, frame_t(1), tag,
       m_pingPongForward));
 
+    // So it's advanced...
+    m_charMovedDelta += rootPositionDelta(sprite, m_frame);
     m_nextFrameTime += sprite->frameDuration(m_frame);
   }
 
@@ -638,6 +663,50 @@ gfx::Point StageEditor::calcExtraPadding()
   }
   else
     return gfx::Point(0, 0);
+}
+
+bool testPostfixMatch(const std::string & str, const char* postfix)
+{
+  int postfixLen = strlen(postfix);
+  for (int i = 0; i < postfixLen; i++) {
+    if (postfix[postfixLen - i - 1] != str[str.length() - i - 1]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void StageEditor::walk(const char* tagPostfix)
+{
+  if (m_doc == nullptr || m_doc->sprite() == nullptr)
+    return;
+
+  Sprite* sprite = m_doc->sprite();
+  for (auto frameTag : sprite->frameTags()) {
+    if (testPostfixMatch(frameTag->name(), tagPostfix)) {
+      if (m_isWalking && frameTag == currentFrameTag(sprite))
+        return;
+
+      if (m_frame < frameTag->fromFrame()
+        || frameTag->toFrame() < m_frame)
+        m_frame = frameTag->fromFrame();
+
+      m_isWalking = true;
+      App::instance()->mainWindow()->getTimeline()->manualUpdateAniControls();
+      play(true, true);
+      return;
+    }
+  }
+}
+
+gfx::Point StageEditor::rootPositionDelta(Sprite* sprite, frame_t frame) {
+  FrameTag* tag = currentFrameTag(sprite);
+  if (frame == tag->fromFrame() || tag->frames() == 1) {
+    return sprite->frameRootPosition(frame);
+  }
+  else {
+    return sprite->frameRootPosition(frame) - sprite->frameRootPosition(frame - 1);
+  }
 }
 
 } // namespace app

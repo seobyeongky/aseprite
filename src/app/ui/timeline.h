@@ -108,6 +108,8 @@ namespace app {
     gfx::Point viewScroll() const override;
     void setViewScroll(const gfx::Point& pt) override;
 
+    void manualUpdateAniControls();
+
   protected:
     bool onProcessMessage(ui::Message* msg) override;
     void onSizeHint(ui::SizeHintEvent& ev) override;

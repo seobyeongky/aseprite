@@ -1422,6 +1422,11 @@ void Timeline::onStateChanged(Editor* editor)
   m_aniControls.updateUsingPlayable(editor);
 }
 
+void Timeline::manualUpdateAniControls()
+{
+  m_aniControls.updateUsingPlayable(m_playable);
+}
+
 void Timeline::onAfterFrameChanged(Editor* editor)
 {
   if (m_fromTimeline)
