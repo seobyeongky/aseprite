@@ -767,7 +767,10 @@ void DocumentExporter::createDataFile(const Samples& samples, std::ostream& os, 
        << "    \"sourceSize\": { "
        << "\"w\": " << srcSize.w << ", "
        << "\"h\": " << srcSize.h << " },\n"
-       << "    \"duration\": " << sample.sprite()->frameDuration(sample.frame()) << "\n"
+       << "    \"duration\": " << sample.sprite()->frameDuration(sample.frame()) << ",\n"
+       << "    \"rootPosition\": { "
+       << "\"x\": " << sample.sprite()->frameRootPosition(sample.frame()).x << ", "
+       << "\"y\": " << sample.sprite()->frameRootPosition(sample.frame()).y << " }\n"
        << "   }";
 
     if (++it != samples.end())
