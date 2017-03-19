@@ -250,22 +250,22 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
   if (m_isPlaying) {
     spritePos = calcCharPos(sprite);
     if (spritePos.x < -m_proj.applyX(WIDTH)/2)
-      m_charMovedDelta.x += m_proj.applyX(WIDTH);
+      m_charMovedDelta.x += WIDTH;
 
     if (spritePos.x > m_proj.applyX(WIDTH)/2)
-      m_charMovedDelta.x -= m_proj.applyX(WIDTH);
+      m_charMovedDelta.x -= WIDTH;
 
     if (spritePos.y < -m_proj.applyY(HEIGHT)/2)
-      m_charMovedDelta.y += m_proj.applyY(HEIGHT);
+      m_charMovedDelta.y += HEIGHT;
 
-    if (spritePos.y > m_proj.applyY(HEIGHT)/2)
-      m_charMovedDelta.y -= m_proj.applyY(HEIGHT);
+	if (spritePos.y > m_proj.applyY(HEIGHT) / 2)
+	  m_charMovedDelta.y -= HEIGHT;
 
     // Update char pos
     spritePos = calcCharPos(sprite);
   }
   else {
-    spritePos = m_previewPos;
+    spritePos = m_proj.apply(m_previewPos);
   }
 
   drawSprite(g
@@ -283,8 +283,8 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
 }
 
 gfx::Point StageEditor::calcCharPos(Sprite* sprite) {
-  return m_previewPos + m_charMovedDelta
-    - sprite->frameRootPosition(m_frame);
+  return m_proj.apply(m_previewPos + m_charMovedDelta
+    - sprite->frameRootPosition(m_frame));
 }
 
 bool StageEditor::onProcessMessage(Message* msg)

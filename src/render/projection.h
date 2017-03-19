@@ -47,6 +47,10 @@ namespace render {
     template<typename T>
     T removeY(T y) const { return m_zoom.remove<T>(y) / T(m_pixelRatio.h); }
 
+    gfx::Point apply(const gfx::Point& vec) const {
+      return gfx::Point(applyX(vec.x), applyY(vec.y));
+    }
+
     gfx::Rect apply(const gfx::Rect& r) const {
       int u = applyX(r.x);
       int v = applyY(r.y);
