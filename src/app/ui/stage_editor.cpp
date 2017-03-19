@@ -63,8 +63,8 @@
 #include "render/render.h"
 #include "render/onionskin_position.h"
 
-const int WIDTH = 150;
-const int HEIGHT = 150;
+const int WIDTH = 250;
+const int HEIGHT = 250;
 
 #define DEBUG_MSG App::instance()->mainWindow()->getStageView()->getDbgLabel()->setTextf
 #define POSITION_TEXT App::instance()->mainWindow()->getStageView()->getPositionLabel()->setTextf
@@ -237,9 +237,9 @@ void StageEditor::onPaint(ui::PaintEvent& ev)
   }
 
   gfx::Point previewPos = playTimePreviewPos(sprite);
-  if (previewPos.x < -WIDTH/2 || previewPos.x > WIDTH/2)
+  if (previewPos.x < -m_proj.applyX(WIDTH)/2 || previewPos.x > m_proj.applyX(WIDTH)/2)
     m_loopCount = 0;
-  if (previewPos.y < -HEIGHT/2 || previewPos.y > HEIGHT/2)
+  if (previewPos.y < -m_proj.applyY(HEIGHT)/2 || previewPos.y > m_proj.applyY(HEIGHT)/2)
     m_loopCount = 0;
 
   previewPos = playTimePreviewPos(sprite);
@@ -482,8 +482,8 @@ void StageEditor::drawSprite(ui::Graphics* g
   gfx::Rect rc = sprite->bounds().createIntersection(spriteRectToDraw);
   rc = m_proj.apply(rc);
 
-  int dest_x = dx + m_padding.x + rc.x + m_proj.applyX(WIDTH)/2 - spriteRectToDraw.w/2;
-  int dest_y = dy + m_padding.y + rc.y + m_proj.applyY(HEIGHT)/2 - spriteRectToDraw.h/2;
+  int dest_x = dx + m_padding.x + rc.x + m_proj.applyX(WIDTH - sprite->width())/2;
+  int dest_y = dy + m_padding.y + rc.y + m_proj.applyY(HEIGHT - sprite->height())/2;
 
     // Clip from graphics/screen
   const gfx::Rect& clip = g->getClipBounds();
@@ -552,7 +552,7 @@ void StageEditor::drawSprite(ui::Graphics* g
   if (rendered) {
     // Convert the render to a she::Surface
     static she::Surface* tmp;
-    if (!tmp || tmp->width() < rc.w || tmp->height() < rc.h) {
+    if (!tmp || tmp->width() != rc.w || tmp->height() != rc.h) {
       if (tmp)
         tmp->dispose();
 
