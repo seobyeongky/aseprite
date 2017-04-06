@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -12,7 +12,6 @@
 
 #include "app/color_utils.h"
 #include "app/pref/preferences.h"
-#include "app/ui/skin/button_icon_impl.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui/status_bar.h"
 #include "base/bind.h"
@@ -53,20 +52,14 @@ ColorWheel::ColorWheel()
   : m_discrete(Preferences::instance().colorBar.discreteWheel())
   , m_colorModel((ColorModel)Preferences::instance().colorBar.wheelModel())
   , m_harmony((Harmony)Preferences::instance().colorBar.harmony())
-  , m_options("", kButtonWidget, kButtonWidget, kCheckWidget)
+  , m_options("")
   , m_harmonyPicked(false)
 {
   SkinTheme* theme = SkinTheme::instance();
-
   setBorder(gfx::Border(3*ui::guiscale()));
 
   m_options.Click.connect(base::Bind<void>(&ColorWheel::onOptions, this));
-  m_options.setBgColor(theme->colors.editorFace());
-  m_options.setIconInterface(
-    new ButtonIconImpl(theme->parts.palOptions(),
-                       theme->parts.palOptions(),
-                       theme->parts.palOptions(),
-                       CENTER | MIDDLE));
+  m_options.setStyle(theme->styles.colorWheelOptions());
 
   addChild(&m_options);
 }
@@ -210,7 +203,7 @@ void ColorWheel::onPaint(ui::PaintEvent& ev)
 
   theme->drawRect(g, clientBounds(),
                   theme->parts.editorNormal().get(),
-                  bgColor());
+                  false);       // Do not fill the center
 
   const gfx::Rect& rc = m_clientBounds;
 

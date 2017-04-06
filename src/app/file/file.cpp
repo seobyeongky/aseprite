@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -21,12 +21,14 @@
 #include "app/modules/gui.h"
 #include "app/modules/palettes.h"
 #include "app/ui/status_bar.h"
+#include "app/xml_document.h"
 #include "base/fs.h"
 #include "base/mutex.h"
 #include "base/scoped_lock.h"
 #include "base/shared_ptr.h"
 #include "base/string.h"
 #include "doc/doc.h"
+#include "doc/slice.h"          // TODO add this header file in doc.h
 #include "docio/detect_format.h"
 #include "render/quantization.h"
 #include "render/render.h"
@@ -40,6 +42,45 @@
 namespace app {
 
 using namespace base;
+
+namespace {
+
+void updateXmlPartFromSliceKey(const SliceKey* key, TiXmlElement* xmlPart)
+{
+  xmlPart->SetAttribute("x", key->bounds().x);
+  xmlPart->SetAttribute("y", key->bounds().y);
+  if (!key->hasCenter()) {
+    xmlPart->SetAttribute("w", key->bounds().w);
+    xmlPart->SetAttribute("h", key->bounds().h);
+    if (xmlPart->Attribute("w1")) xmlPart->RemoveAttribute("w1");
+    if (xmlPart->Attribute("w2")) xmlPart->RemoveAttribute("w2");
+    if (xmlPart->Attribute("w3")) xmlPart->RemoveAttribute("w3");
+    if (xmlPart->Attribute("h1")) xmlPart->RemoveAttribute("h1");
+    if (xmlPart->Attribute("h2")) xmlPart->RemoveAttribute("h2");
+    if (xmlPart->Attribute("h3")) xmlPart->RemoveAttribute("h3");
+  }
+  else {
+    xmlPart->SetAttribute("w1", key->center().x);
+    xmlPart->SetAttribute("w2", key->center().w);
+    xmlPart->SetAttribute("w3", key->bounds().w - key->center().x2());
+    xmlPart->SetAttribute("h1", key->center().y);
+    xmlPart->SetAttribute("h2", key->center().h);
+    xmlPart->SetAttribute("h3", key->bounds().h - key->center().y2());
+    if (xmlPart->Attribute("w")) xmlPart->RemoveAttribute("w");
+    if (xmlPart->Attribute("h")) xmlPart->RemoveAttribute("h");
+  }
+
+  if (key->hasPivot()) {
+    xmlPart->SetAttribute("focusx", key->pivot().x);
+    xmlPart->SetAttribute("focusy", key->pivot().y);
+  }
+  else {
+    if (xmlPart->Attribute("focusx")) xmlPart->RemoveAttribute("focusx");
+    if (xmlPart->Attribute("focusy")) xmlPart->RemoveAttribute("focusy");
+  }
+}
+
+} // anonymous namespace
 
 std::string get_readable_extensions()
 {
@@ -71,7 +112,7 @@ std::string get_writable_extensions()
   return buf;
 }
 
-Document* load_document(Context* context, const char* filename)
+Document* load_document(Context* context, const std::string& filename)
 {
   /* TODO add a option to configure what to do with the sequence */
   base::UniquePtr<FileOp> fop(FileOp::createLoadDocumentOperation(context, filename, FILE_LOAD_SEQUENCE_NONE));
@@ -106,7 +147,7 @@ int save_document(Context* context, doc::Document* document)
       context,
       FileOpROI(static_cast<app::Document*>(document), "",
                 SelectedFrames(), false),
-      document->filename().c_str(), ""));
+      document->filename(), ""));
   if (!fop)
     return -1;
 
@@ -164,18 +205,18 @@ FileOpROI::FileOpROI(const app::Document* doc,
 }
 
 // static
-FileOp* FileOp::createLoadDocumentOperation(Context* context, const char* filename, int flags)
+FileOp* FileOp::createLoadDocumentOperation(Context* context, const std::string& filename, int flags)
 {
   base::UniquePtr<FileOp> fop(
     new FileOp(FileOpLoad, context));
   if (!fop)
     return nullptr;
 
-  LOG("FILE: Loading file \"%s\"\n", filename);
+  LOG("FILE: Loading file \"%s\"\n", filename.c_str());
 
   // Does file exist?
   if (!base::is_file(filename)) {
-    fop->setError("File not found: \"%s\"\n", filename);
+    fop->setError("File not found: \"%s\"\n", filename.c_str());
     goto done;
   }
 
@@ -185,7 +226,7 @@ FileOp* FileOp::createLoadDocumentOperation(Context* context, const char* filena
   if (!fop->m_format ||
       !fop->m_format->support(FILE_SUPPORT_LOAD)) {
     fop->setError("%s can't load \"%s\" file (\"%s\")\n", PACKAGE,
-                  filename, base::get_file_extension(filename).c_str());
+                  filename.c_str(), base::get_file_extension(filename).c_str());
     goto done;
   }
 
@@ -285,12 +326,20 @@ FileOp* FileOp::createLoadDocumentOperation(Context* context, const char* filena
       }
     }
   }
-  else
+  else {
     fop->m_filename = filename;
+  }
 
-  /* load just one frame */
+  // Load just one frame
   if (flags & FILE_LOAD_ONE_FRAME)
     fop->m_oneframe = true;
+
+  // Does data file exist?
+  if (flags & FILE_LOAD_DATA_FILE) {
+    std::string dataFilename = base::replace_extension(filename, "aseprite-data");
+    if (base::is_file(dataFilename))
+      fop->m_dataFilename = dataFilename;
+  }
 
 done:;
   return fop.release();
@@ -299,8 +348,8 @@ done:;
 // static
 FileOp* FileOp::createSaveDocumentOperation(const Context* context,
                                             const FileOpROI& roi,
-                                            const char* filename,
-                                            const char* filenameFormatArg)
+                                            const std::string& filename,
+                                            const std::string& filenameFormatArg)
 {
   base::UniquePtr<FileOp> fop(
     new FileOp(FileOpSave, const_cast<Context*>(context)));
@@ -310,7 +359,7 @@ FileOp* FileOp::createSaveDocumentOperation(const Context* context,
   fop->m_roi = roi;
 
   // Get the extension of the filename (in lower case)
-  LOG("FILE: Saving document \"%s\"\n", filename);
+  LOG("FILE: Saving document \"%s\"\n", filename.c_str());
 
   // Get the format through the extension of the filename
   fop->m_format = FileFormatsManager::instance()->getFileFormat(
@@ -318,7 +367,7 @@ FileOp* FileOp::createSaveDocumentOperation(const Context* context,
   if (!fop->m_format ||
       !fop->m_format->support(FILE_SUPPORT_SAVE)) {
     fop->setError("%s can't save \"%s\" file (\"%s\")\n", PACKAGE,
-                  filename, base::get_file_extension(filename).c_str());
+                  filename.c_str(), base::get_file_extension(filename).c_str());
     return fop.release();
   }
 
@@ -520,6 +569,11 @@ FileOp* FileOp::createSaveDocumentOperation(const Context* context,
     fop->m_document->setFormatOptions(opts);
   }
 
+  // Does data file exist?
+  std::string dataFilename = base::replace_extension(filename, "aseprite-data");
+  if (base::is_file(dataFilename))
+    fop->m_dataFilename = dataFilename;
+
   return fop.release();
 }
 
@@ -650,9 +704,17 @@ void FileOp::operate(IFileOpProgress* progress)
     // Direct load from one file.
     else {
       // Call the "load" procedure.
-      if (!m_format->load(this))
+      if (!m_format->load(this)) {
         setError("Error loading sprite from file \"%s\"\n",
                  m_filename.c_str());
+      }
+    }
+
+    // Load special data from .aseprite-data file
+    if (m_document &&
+        m_document->sprite()  &&
+        !m_dataFilename.empty()) {
+      loadData();
     }
   }
   // Save //////////////////////////////////////////////////////////////////////
@@ -707,9 +769,18 @@ void FileOp::operate(IFileOpProgress* progress)
     // Direct save to a file.
     else {
       // Call the "save" procedure.
-      if (!m_format->save(this))
+      if (!m_format->save(this)) {
         setError("Error saving the sprite in the file \"%s\"\n",
                  m_filename.c_str());
+      }
+    }
+
+    // Save special data from .aseprite-data file
+    if (m_document &&
+        m_document->sprite() &&
+        !hasError() &&
+        !m_dataFilename.empty()) {
+      saveData();
     }
 #else
     setError(
@@ -896,7 +967,7 @@ Image* FileOp::sequenceImage(PixelFormat pixelFormat, int w, int h)
 
 void FileOp::setError(const char *format, ...)
 {
-  char buf_error[4096];
+  char buf_error[4096];         // TODO possible stack overflow
   va_list ap;
   va_start(ap, format);
   vsnprintf(buf_error, sizeof(buf_error), format, ap);
@@ -993,6 +1064,149 @@ void FileOp::prepareForSequence()
 {
   m_seq.palette = new Palette(frame_t(0), 256);
   m_formatOptions.reset();
+}
+
+void FileOp::loadData()
+{
+  try {
+    XmlDocumentRef xmlDoc = open_xml(m_dataFilename);
+    TiXmlHandle handle(xmlDoc.get());
+
+    TiXmlElement* xmlSlices = handle
+      .FirstChild("sprite")
+      .FirstChild("slices").ToElement();
+
+    // Update theme.xml file
+    if (xmlSlices &&
+        xmlSlices->Attribute("theme")) {
+      std::string themeFileName = xmlSlices->Attribute("theme");
+
+      // Open theme XML file
+      XmlDocumentRef xmlThemeDoc = open_xml(
+        base::join_path(base::get_file_path(m_dataFilename), themeFileName));
+      TiXmlHandle themeHandle(xmlThemeDoc.get());
+      for (TiXmlElement* xmlPart = themeHandle
+             .FirstChild("theme")
+             .FirstChild("parts")
+             .FirstChild("part").ToElement();
+           xmlPart;
+           xmlPart=xmlPart->NextSiblingElement()) {
+        const char* partId = xmlPart->Attribute("id");
+        if (!partId)
+          continue;
+
+        auto slice = new doc::Slice();
+        slice->setName(partId);
+
+        doc::SliceKey key;
+
+        int x = strtol(xmlPart->Attribute("x"), NULL, 10);
+        int y = strtol(xmlPart->Attribute("y"), NULL, 10);
+
+        if (xmlPart->Attribute("w1")) {
+          int w1 = xmlPart->Attribute("w1") ? strtol(xmlPart->Attribute("w1"), NULL, 10): 0;
+          int w2 = xmlPart->Attribute("w2") ? strtol(xmlPart->Attribute("w2"), NULL, 10): 0;
+          int w3 = xmlPart->Attribute("w3") ? strtol(xmlPart->Attribute("w3"), NULL, 10): 0;
+          int h1 = xmlPart->Attribute("h1") ? strtol(xmlPart->Attribute("h1"), NULL, 10): 0;
+          int h2 = xmlPart->Attribute("h2") ? strtol(xmlPart->Attribute("h2"), NULL, 10): 0;
+          int h3 = xmlPart->Attribute("h3") ? strtol(xmlPart->Attribute("h3"), NULL, 10): 0;
+
+          key.setBounds(gfx::Rect(x, y, w1+w2+w3, h1+h2+h3));
+          key.setCenter(gfx::Rect(w1, h1, w2, h2));
+        }
+        else if (xmlPart->Attribute("w")) {
+          int w = xmlPart->Attribute("w") ? strtol(xmlPart->Attribute("w"), NULL, 10): 0;
+          int h = xmlPart->Attribute("h") ? strtol(xmlPart->Attribute("h"), NULL, 10): 0;
+          key.setBounds(gfx::Rect(x, y, w, h));
+        }
+
+        if (xmlPart->Attribute("focusx")) {
+          int x = xmlPart->Attribute("focusx") ? strtol(xmlPart->Attribute("focusx"), NULL, 10): 0;
+          int y = xmlPart->Attribute("focusy") ? strtol(xmlPart->Attribute("focusy"), NULL, 10): 0;
+          key.setPivot(gfx::Point(x, y));
+        }
+
+        slice->insert(0, key);
+        m_document->sprite()->slices().add(slice);
+      }
+    }
+  }
+  catch (const std::exception& ex) {
+    setError("Error loading data file: %s\n", ex.what());
+  }
+}
+
+void FileOp::saveData()
+{
+  try {
+    XmlDocumentRef xmlDoc = open_xml(m_dataFilename);
+    TiXmlHandle handle(xmlDoc.get());
+
+    TiXmlElement* xmlSlices = handle
+      .FirstChild("sprite")
+      .FirstChild("slices").ToElement();
+
+    if (xmlSlices &&
+        xmlSlices->Attribute("theme")) {
+      // Open theme XML file
+      std::string themeFileName = base::join_path(
+          base::get_file_path(m_dataFilename), xmlSlices->Attribute("theme"));
+      XmlDocumentRef xmlThemeDoc = open_xml(themeFileName);
+
+      TiXmlHandle themeHandle(xmlThemeDoc.get());
+      TiXmlElement* xmlNext = nullptr;
+      std::set<std::string> existent;
+
+      TiXmlElement* xmlParts =
+        themeHandle
+        .FirstChild("theme")
+        .FirstChild("parts").ToElement();
+
+      for (TiXmlElement* xmlPart=(TiXmlElement*)xmlParts->FirstChild("part");
+           xmlPart;
+           xmlPart=xmlNext) {
+        xmlNext = xmlPart->NextSiblingElement();
+
+        const char* partId = xmlPart->Attribute("id");
+        if (!partId)
+          continue;
+
+        bool found = false;
+        for (auto slice : m_document->sprite()->slices()) {
+          const SliceKey* key;
+          if ((slice->name() == partId) &&
+              (key = slice->getByFrame(0))) {
+            existent.insert(slice->name());
+            updateXmlPartFromSliceKey(key, xmlPart);
+            found = true;
+            break;
+          }
+        }
+
+        // Delete this <part> element (as the slice was removed)
+        if (!found)
+          xmlPart->Parent()->RemoveChild(xmlPart);
+      }
+
+      for (auto slice : m_document->sprite()->slices()) {
+        const SliceKey* key;
+        if (existent.find(slice->name()) == existent.end() &&
+            (key = slice->getByFrame(0))) {
+
+          TiXmlElement xmlPart("part");
+          xmlPart.SetAttribute("id", slice->name().c_str());
+          updateXmlPartFromSliceKey(key, &xmlPart);
+
+          xmlParts->InsertAfterChild(xmlParts->LastChild(), xmlPart);
+        }
+      }
+
+      save_xml(xmlThemeDoc, themeFileName);
+    }
+  }
+  catch (const std::exception& ex) {
+    setError("Error loading data file: %s\n", ex.what());
+  }
 }
 
 } // namespace app

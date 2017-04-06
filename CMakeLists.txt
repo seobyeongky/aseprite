@@ -1,5 +1,5 @@
 # Aseprite
-# Copyright (C) 2001-2016  David Capello
+# Copyright (C) 2001-2017  David Capello
 #
 # Parts of this file come from the Allegro 4.4 CMakeLists.txt
 
@@ -57,6 +57,7 @@ option(WITH_DESKTOP_INTEGRATION     "Enable desktop integration modules" off)
 option(WITH_QT_THUMBNAILER          "Enable kde5/qt5 thumnailer" off)
 
 option(USE_STATIC_LIBC    "Use static version of C and C++ runtimes" off)
+option(USE_SHARED_CMARK   "Use your installed copy of cmark" off)
 option(USE_SHARED_CURL    "Use your installed copy of curl" off)
 option(USE_SHARED_GIFLIB  "Use your installed copy of giflib" off)
 option(USE_SHARED_JPEGLIB "Use your installed copy of jpeglib" off)
@@ -135,6 +136,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_PROFILE "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_PROFILE "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_PROFILE "${CMAKE_BINARY_DIR}/bin")
 
+set(CMARK_DIR           ${CMAKE_SOURCE_DIR}/third_party/cmark)
 set(CURL_DIR            ${CMAKE_SOURCE_DIR}/third_party/curl)
 set(GIFLIB_DIR          ${CMAKE_SOURCE_DIR}/third_party/giflib)
 set(LIBJPEG_DIR         ${CMAKE_SOURCE_DIR}/third_party/jpeg)
@@ -143,6 +145,7 @@ set(LOADPNG_DIR         ${CMAKE_SOURCE_DIR}/third_party/loadpng)
 set(LIBWEBP_DIR         ${CMAKE_SOURCE_DIR}/third_party/libwebp)
 set(PIXMAN_DIR          ${CMAKE_SOURCE_DIR}/third_party/pixman)
 set(FREETYPE_DIR        ${CMAKE_SOURCE_DIR}/third_party/freetype2)
+set(HARFBUZZ_DIR        ${CMAKE_SOURCE_DIR}/third_party/harfbuzz)
 set(SIMPLEINI_DIR       ${CMAKE_SOURCE_DIR}/third_party/simpleini)
 set(TINYXML_DIR         ${CMAKE_SOURCE_DIR}/third_party/tinyxml)
 set(ZLIB_DIR            ${CMAKE_SOURCE_DIR}/third_party/zlib)
@@ -263,6 +266,10 @@ else()
 endif()
 include_directories(${FREETYPE_INCLUDE_DIRS})
 
+# harfbuzz
+set(HARFBUZZ_LIBRARIES harfbuzz)
+set(HARFBUZZ_INCLUDE_DIRS ${HARFBUZZ_DIR}/src)
+
 if(USE_SHARED_GIFLIB)
   find_package(GIF REQUIRED)
 else()
@@ -288,6 +295,15 @@ if(USE_ALLEG4_BACKEND)
     set(LOADPNG_INCLUDE_DIR ${LOADPNG_DIR})
   endif()
   include_directories(${LOADPNG_INCLUDE_DIR})
+endif()
+
+if(USE_SHARED_CMARK)
+  find_library(CMARK_LIBRARIES NAMES cmark)
+  find_path(CMARK_INCLUDE_DIRS NAMES cmark.h)
+else()
+  add_definitions(-DCMARK_STATIC_DEFINE)
+  set(CMARK_LIBRARIES libcmark_static)
+  include_directories(${CMAKE_BINARY_DIR}/third_party/cmark)
 endif()
 
 if(USE_SHARED_CURL)

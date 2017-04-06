@@ -28,6 +28,16 @@
 	<listitem text="@.double_high" value="1:2" />
       </combobox>
 
+      <box vertical="true" homogeneous="true">
+        <label text="@.pivot_x" />
+        <label text="@.pivot_y" />
+      </box>
+      <box vertical="true" homogeneous="true" expansive="true">
+        <entry expansive="true" text="0.5" id="pivot_x" maxsize="8" magnet="true"/>
+        <entry expansive="true" text="0.5" id="pivot_y" maxsize="8"/>
+      </box>
+      <box horizontal="true" width="64" />
+
     </grid>
     <separator horizontal="true" />
     <hbox>

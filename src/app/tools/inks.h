@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,6 +13,7 @@
 #include "app/document_undo.h"
 #include "app/tools/pick_ink.h"
 #include "doc/mask.h"
+#include "doc/slice.h"
 #include "gfx/region.h"
 
 namespace app {
@@ -168,16 +169,75 @@ public:
 
 
 class SliceInk : public Ink {
+  AlgoHLine m_proc;
+  bool m_createSlice;
+  gfx::Rect m_maxBounds;
+
 public:
+  SliceInk() {
+    m_createSlice = false;
+  }
+
   Ink* clone() override { return new SliceInk(*this); }
 
   bool isSlice() const override { return true; }
   bool needsCelCoordinates() const override { return false; }
 
-  void prepareInk(ToolLoop* loop) override { }
+  void prepareInk(ToolLoop* loop) override {
+    m_proc = get_ink_proc<XorInkProcessing>(loop->sprite()->pixelFormat());
+  }
+
   void inkHline(int x1, int y, int x2, ToolLoop* loop) override {
-    // TODO show the selection-preview with a XOR color or something like that
-    draw_hline(loop->getDstImage(), x1, y, x2, loop->getPrimaryColor());
+    if (m_createSlice)
+      m_maxBounds |= gfx::Rect(x1, y, x2-x1+1, 1);
+    else
+      (*m_proc)(x1, y, x2, loop);
+  }
+
+  void setFinalStep(ToolLoop* loop, bool state) override {
+    m_createSlice = state;
+    if (state) {
+      m_maxBounds = gfx::Rect(0, 0, 0, 0);
+    }
+    else if (loop->getMouseButton() == ToolLoop::Left) {
+      Slice* slice = new Slice;
+      SliceKey key(m_maxBounds);
+      slice->insert(loop->getFrame(), key);
+      loop->addSlice(slice);
+    }
+  }
+};
+
+
+class MoveSliceInk : public Ink {
+  AlgoHLine m_proc;
+  bool m_selectSlices;
+
+public:
+  MoveSliceInk() {
+    m_selectSlices = false;
+  }
+
+  Ink* clone() override { return new MoveSliceInk(*this); }
+
+  bool isSlice() const override { return true; }
+  bool isMoveSlice() const override { return true; }
+  bool needsCelCoordinates() const override { return false; }
+
+  void prepareInk(ToolLoop* loop) override {
+    m_proc = get_ink_proc<XorInkProcessing>(loop->sprite()->pixelFormat());
+  }
+
+  void inkHline(int x1, int y, int x2, ToolLoop* loop) override {
+    if (m_selectSlices) {
+      // TODO
+    }
+    else
+      (*m_proc)(x1, y, x2, loop);
+  }
+
+  void setFinalStep(ToolLoop* loop, bool state) override {
+    m_selectSlices = state;
   }
 };
 
@@ -345,7 +405,6 @@ public:
 
       m_maxBounds |= gfx::Rect(x1, y, x2-x1+1, 1);
     }
-    // TODO show the selection-preview with a XOR color or something like that
     else {
       (*m_proc)(x1, y, x2, loop);
     }

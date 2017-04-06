@@ -13,7 +13,7 @@
 #include "app/commands/command.h"
 #include "app/context.h"
 #include "app/file_selector.h"
-#include "app/modules/gui.h"
+#include "app/match_words.h"
 #include "app/resource_finder.h"
 #include "app/tools/tool.h"
 #include "app/tools/tool_box.h"
@@ -214,7 +214,7 @@ private:
     g->drawUIText(text(), fg, bg,
       gfx::Point(
         bounds.x + m_level*16 * guiscale(),
-        bounds.y + 2*guiscale()));
+        bounds.y + 2*guiscale()), 0);
 
     if (m_key && !m_key->accels().empty()) {
       std::string buf;
@@ -277,13 +277,13 @@ private:
               m_changeConn = obs::connection();
               m_changeButton.reset(new Button(""));
               m_changeConn = m_changeButton->Click.connect(base::Bind<void>(&KeyItem::onChangeAccel, this, i));
-              setup_mini_look(m_changeButton.get());
+              m_changeButton->setStyle(SkinTheme::instance()->styles.miniButton());
               addChild(m_changeButton.get());
 
               m_deleteConn = obs::connection();
               m_deleteButton.reset(new Button(""));
               m_deleteConn = m_deleteButton->Click.connect(base::Bind<void>(&KeyItem::onDeleteAccel, this, i));
-              setup_mini_look(m_deleteButton.get());
+              m_deleteButton->setStyle(SkinTheme::instance()->styles.miniButton());
               addChild(m_deleteButton.get());
 
               m_changeButton->setBgColor(gfx::ColorNone);
@@ -292,12 +292,13 @@ private:
 
               const char* label = "x";
               m_deleteButton->setBgColor(gfx::ColorNone);
-              m_deleteButton->setBounds(gfx::Rect(
-                                          itemBounds.x + itemBounds.w + 2*guiscale(),
-                                          itemBounds.y,
-                                          Graphics::measureUITextLength(
-                                            label, font()) + 4*guiscale(),
-                                          itemBounds.h));
+              m_deleteButton->setBounds(
+                gfx::Rect(
+                  itemBounds.x + itemBounds.w + 2*guiscale(),
+                  itemBounds.y,
+                  Graphics::measureUITextLength(
+                    label, font()) + 4*guiscale(),
+                  itemBounds.h));
               m_deleteButton->setText(label);
 
               invalidate();
@@ -309,7 +310,7 @@ private:
             m_addConn = obs::connection();
             m_addButton.reset(new Button(""));
             m_addConn = m_addButton->Click.connect(base::Bind<void>(&KeyItem::onAddAccel, this));
-            setup_mini_look(m_addButton.get());
+            m_addButton->setStyle(SkinTheme::instance()->styles.miniButton());
             addChild(m_addButton.get());
 
             itemBounds.w = 8*guiscale() + Graphics::measureUITextLength("Add", font());
@@ -487,8 +488,7 @@ private:
   void fillSearchList(const std::string& search) {
     deleteList(searchList());
 
-    std::vector<std::string> parts;
-    base::split_string(base::string_to_lower(search), parts, " ");
+    MatchWords match(search);
 
     ListBox* listBoxes[] = { menus(), commands(), tools(), actions() };
     int sectionIdx = 0;         // index 0 is menus
@@ -498,31 +498,24 @@ private:
       for (auto item : listBox->children()) {
         if (KeyItem* keyItem = dynamic_cast<KeyItem*>(item)) {
           std::string itemText = keyItem->searchableText();
-          std::string lowerItemText = base::string_to_lower(itemText);
-          int matches = 0;
+          if (!match(itemText))
+            continue;
 
-          for (const auto& part : parts) {
-            if (lowerItemText.find(part) != std::string::npos)
-              ++matches;
+          if (!group) {
+            group = new Separator(
+              section()->children()[sectionIdx]->text(), HORIZONTAL);
+            group->setStyle(SkinTheme::instance()->styles.separatorInView());
+
+            searchList()->addChild(group);
           }
 
-          if (matches == int(parts.size())) {
-            if (!group) {
-              group = new Separator(
-                section()->children()[sectionIdx]->text(), HORIZONTAL);
-              group->setBgColor(SkinTheme::instance()->colors.background());
+          KeyItem* copyItem =
+            new KeyItem(itemText,
+                        keyItem->key(),
+                        keyItem->menuitem(), 0);
 
-              searchList()->addChild(group);
-            }
-
-            KeyItem* copyItem =
-              new KeyItem(itemText,
-                          keyItem->key(),
-                          keyItem->menuitem(), 0);
-
-            m_allKeyItems.push_back(copyItem);
-            searchList()->addChild(copyItem);
-          }
+          m_allKeyItems.push_back(copyItem);
+          searchList()->addChild(copyItem);
         }
       }
 

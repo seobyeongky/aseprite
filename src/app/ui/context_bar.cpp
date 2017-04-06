@@ -18,7 +18,6 @@
 #include "app/document.h"
 #include "app/ini_file.h"
 #include "app/modules/gfx.h"
-#include "app/modules/gui.h"
 #include "app/modules/palettes.h"
 #include "app/pref/preferences.h"
 #include "app/shade.h"
@@ -34,9 +33,7 @@
 #include "app/ui/button_set.h"
 #include "app/ui/color_button.h"
 #include "app/ui/icon_button.h"
-#include "app/ui/skin/button_icon_impl.h"
 #include "app/ui/skin/skin_theme.h"
-#include "app/ui/skin/style.h"
 #include "app/ui_context.h"
 #include "base/bind.h"
 #include "base/scoped_value.h"
@@ -310,7 +307,7 @@ class ContextBar::ContiguousField : public CheckBox
 {
 public:
   ContiguousField() : CheckBox("Contiguous") {
-    setup_mini_font(this);
+    setStyle(SkinTheme::instance()->styles.miniCheckBox());
   }
 
 protected:
@@ -663,9 +660,7 @@ class ContextBar::InkShadesField : public HBox {
           bounds.w = w;
       }
 
-      skin::Style::State state;
-      if (hasMouseOver()) state += Style::hover();
-      theme->styles.view()->paint(g, bounds, nullptr, state);
+      theme->paintWidget(g, this, theme->styles.view(), bounds);
 
       bounds.shrink(3*guiscale());
 
@@ -707,10 +702,9 @@ class ContextBar::InkShadesField : public HBox {
         if (!hotBounds.isEmpty() && m_click == DragAndDrop) {
           hotBounds.enlarge(3*guiscale());
 
-          Style::State state = Style::active();
-          state += Style::hover();
-          theme->styles.timelineRangeOutline()->paint(
-            g, hotBounds, NULL, state);
+          PaintWidgetPartInfo info;
+          theme->paintWidgetPart(
+            g, theme->styles.shadeSelection(), hotBounds, info);
         }
       }
       else {
@@ -1146,7 +1140,7 @@ class ContextBar::FreehandAlgorithmField : public CheckBox
 {
 public:
   FreehandAlgorithmField() : CheckBox("Pixel-perfect") {
-    setup_mini_font(this);
+    setStyle(SkinTheme::instance()->styles.miniCheckBox());
   }
 
   void setupTooltips(TooltipManager* tooltipManager) {
@@ -1296,7 +1290,7 @@ class ContextBar::AutoSelectLayerField : public CheckBox
 {
 public:
   AutoSelectLayerField() : CheckBox("Auto Select Layer") {
-    setup_mini_font(this);
+    setStyle(SkinTheme::instance()->styles.miniCheckBox());
   }
 
 protected:
@@ -1401,17 +1395,17 @@ ContextBar::ContextBar()
 
   addChild(m_selectBoxHelp = new Label(""));
 
-  setup_mini_font(m_sprayLabel);
+  m_sprayLabel->setStyle(theme->styles.miniLabel());
 
   addChild(m_freehandBox = new HBox());
 #if 0                           // TODO for v1.1
   m_freehandBox->addChild(m_freehandLabel = new Label("Freehand:"));
-  setup_mini_font(m_freehandLabel);
+  m_freehandLabel->setStyle(theme->styles.miniLabel());
 #endif
   m_freehandBox->addChild(m_freehandAlgo = new FreehandAlgorithmField());
 
-  setup_mini_font(m_toleranceLabel);
-  setup_mini_font(m_inkOpacityLabel);
+  m_toleranceLabel->setStyle(theme->styles.miniLabel());
+  m_inkOpacityLabel->setStyle(theme->styles.miniLabel());
 
   addChild(m_symmetry = new SymmetryField());
   m_symmetry->setVisible(Preferences::instance().symmetryMode.enabled());

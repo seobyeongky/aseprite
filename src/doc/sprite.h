@@ -1,5 +1,5 @@
 // Aseprite Document Library
-// Copyright (c) 2001-2016 David Capello
+// Copyright (c) 2001-2017 David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -19,6 +19,7 @@
 #include "doc/object.h"
 #include "doc/pixel_format.h"
 #include "doc/pixel_ratio.h"
+#include "doc/slices.h"
 #include "doc/sprite_position.h"
 #include "gfx/rect.h"
 
@@ -70,10 +71,15 @@ namespace doc {
     gfx::Rect bounds() const { return m_spec.bounds(); }
     int width() const { return m_spec.width(); }
     int height() const { return m_spec.height(); }
+    gfx::PointF pivot() const { return m_pivot; }
+    double pivotX() const { return m_pivot.x; }
+    double pivotY() const { return m_pivot.y; }
 
     void setPixelFormat(PixelFormat format);
     void setPixelRatio(const PixelRatio& pixelRatio);
     void setSize(int width, int height);
+    void setPivot(double x, double y);
+    void setPivot(gfx::PointF pivot);
 
     // Returns true if the rendered images will contain alpha values less
     // than 255. Only RGBA and Grayscale images without background needs
@@ -131,6 +137,9 @@ namespace doc {
     const FrameTags& frameTags() const { return m_frameTags; }
     FrameTags& frameTags() { return m_frameTags; }
 
+    const Slices& slices() const { return m_slices; }
+    Slices& slices() { return m_slices; }
+
     ////////////////////////////////////////
     // Shared Images and CelData (for linked Cels)
 
@@ -177,6 +186,9 @@ namespace doc {
     mutable RgbMap* m_rgbMap;
 
     FrameTags m_frameTags;
+    Slices m_slices;
+
+    gfx::PointF m_pivot;
 
     // Disable default constructor and copying
     Sprite();

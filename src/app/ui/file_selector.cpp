@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -21,7 +21,6 @@
 #include "app/recent_files.h"
 #include "app/ui/file_list.h"
 #include "app/ui/file_list_view.h"
-#include "app/ui/skin/button_icon_impl.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/widget_loader.h"
 #include "base/bind.h"
@@ -313,7 +312,6 @@ FileSelector::FileSelector(FileSelectorType type, FileSelectorDelegate* delegate
   , m_extras(nullptr)
   , m_navigationLocked(false)
 {
-  SkinTheme* theme = SkinTheme::instance();
   bool withResizeOptions = (delegate && delegate->hasResizeCombobox());
 
   addChild(new ArrowNavigator(this));
@@ -326,32 +324,6 @@ FileSelector::FileSelector(FileSelectorType type, FileSelectorDelegate* delegate
   goForwardButton()->setFocusStop(false);
   goUpButton()->setFocusStop(false);
   newFolderButton()->setFocusStop(false);
-
-  goBackButton()->setIconInterface(
-    new ButtonIconImpl(theme->parts.comboboxArrowLeft(),
-                       theme->parts.comboboxArrowLeftSelected(),
-                       theme->parts.comboboxArrowLeftDisabled(),
-                       CENTER | MIDDLE));
-  goForwardButton()->setIconInterface(
-    new ButtonIconImpl(theme->parts.comboboxArrowRight(),
-                       theme->parts.comboboxArrowRightSelected(),
-                       theme->parts.comboboxArrowRightDisabled(),
-                       CENTER | MIDDLE));
-  goUpButton()->setIconInterface(
-    new ButtonIconImpl(theme->parts.comboboxArrowUp(),
-                       theme->parts.comboboxArrowUpSelected(),
-                       theme->parts.comboboxArrowUpDisabled(),
-                       CENTER | MIDDLE));
-  newFolderButton()->setIconInterface(
-    new ButtonIconImpl(theme->parts.newfolder(),
-                       theme->parts.newfolderSelected(),
-                       theme->parts.newfolder(),
-                       CENTER | MIDDLE));
-
-  setup_mini_look(goBackButton());
-  setup_mini_look(goForwardButton());
-  setup_mini_look(goUpButton());
-  setup_mini_look(newFolderButton());
 
   m_fileList = new FileList();
   m_fileList->setId("fileview");

@@ -16,8 +16,7 @@
 #include "app/commands/commands.h"
 #include "app/commands/params.h"
 #include "app/ui/main_window.h"
-#include "app/ui/skin/skin_style_property.h"
-#include "app/ui/skin/skin_theme.h"
+#include "ui/style.h"
 #include "app/ui/workspace.h"
 #include "app/ui/workspace_tabs.h"
 #include "app/ui_context.h"
@@ -62,6 +61,7 @@
 #include "app/modules/playables.h"
 #include "render/render.h"
 #include "render/onionskin_position.h"
+#include "app/ui/skin/skin_theme.h"
 
 const int WIDTH = 250;
 const int HEIGHT = 250;

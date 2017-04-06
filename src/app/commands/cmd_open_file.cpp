@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -124,7 +124,9 @@ void OpenFileCommand::onExecute(Context* context)
   if (m_filename.empty())
     return;
 
-  int flags = (m_repeatCheckbox ? FILE_LOAD_SEQUENCE_ASK_CHECKBOX: 0);
+  int flags =
+    FILE_LOAD_DATA_FILE |
+    (m_repeatCheckbox ? FILE_LOAD_SEQUENCE_ASK_CHECKBOX: 0);
 
   switch (m_seqDecision) {
     case SequenceDecision::Ask:
@@ -143,7 +145,7 @@ void OpenFileCommand::onExecute(Context* context)
 
   base::UniquePtr<FileOp> fop(
     FileOp::createLoadDocumentOperation(
-      context, m_filename.c_str(), flags));
+      context, m_filename, flags));
   bool unrecent = false;
 
   // Do nothing (the user cancelled or something like that)

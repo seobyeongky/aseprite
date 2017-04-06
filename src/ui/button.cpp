@@ -1,5 +1,5 @@
 // Aseprite UI Library
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -28,8 +28,6 @@ ButtonBase::ButtonBase(const std::string& text,
   : Widget(type)
   , m_pressedStatus(false)
   , m_behaviorType(behaviorType)
-  , m_drawType(drawType)
-  , m_iconInterface(NULL)
   , m_handleSelect(true)
 {
   setAlign(CENTER | MIDDLE);
@@ -37,35 +35,18 @@ ButtonBase::ButtonBase(const std::string& text,
   setFocusStop(true);
 
   // Initialize theme
-  setType(m_drawType);      // TODO Fix this nasty trick
+  setType(drawType);            // TODO Fix this nasty trick
   initTheme();
   setType(type);
 }
 
 ButtonBase::~ButtonBase()
 {
-  if (m_iconInterface)
-    m_iconInterface->destroy();
 }
 
 WidgetType ButtonBase::behaviorType() const
 {
   return m_behaviorType;
-}
-
-WidgetType ButtonBase::drawType() const
-{
-  return m_drawType;
-}
-
-void ButtonBase::setIconInterface(IButtonIcon* iconInterface)
-{
-  if (m_iconInterface)
-    m_iconInterface->destroy();
-
-  m_iconInterface = iconInterface;
-
-  invalidate();
 }
 
 void ButtonBase::onClick(Event& ev)
@@ -101,7 +82,7 @@ bool ButtonBase::onProcessMessage(Message* msg)
       if (isEnabled()) {
         bool mnemonicPressed =
           ((msg->altPressed() || msg->cmdPressed()) &&
-           mnemonicCharPressed(keymsg));
+           isMnemonicPressed(keymsg));
 
         // For kButtonWidget
         if (m_behaviorType == kButtonWidget) {
@@ -268,28 +249,6 @@ bool ButtonBase::onProcessMessage(Message* msg)
   }
 
   return Widget::onProcessMessage(msg);
-}
-
-void ButtonBase::onSizeHint(SizeHintEvent& ev)
-{
-  gfx::Rect box;
-  gfx::Size iconSize = (m_iconInterface ? m_iconInterface->size(): gfx::Size(0, 0));
-  getTextIconInfo(&box, NULL, NULL,
-                  m_iconInterface ? m_iconInterface->iconAlign(): 0,
-                  iconSize.w,
-                  iconSize.h);
-
-  ev.setSizeHint(box.w + border().width(),
-                 box.h + border().height());
-}
-
-void ButtonBase::onPaint(PaintEvent& ev)
-{
-  switch (m_drawType) {
-    case kButtonWidget: theme()->paintButton(ev); break;
-    case kCheckWidget:  theme()->paintCheckBox(ev); break;
-    case kRadioWidget:  theme()->paintRadioButton(ev); break;
-  }
 }
 
 void ButtonBase::generateButtonSelectSignal()

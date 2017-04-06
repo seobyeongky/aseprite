@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,6 +13,9 @@
 #include "app/commands/cmd_set_palette.h"
 #include "app/commands/commands.h"
 #include "app/console.h"
+#include "app/font_path.h"
+#include "app/match_words.h"
+#include "app/ui/search_entry.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui_context.h"
 #include "app/util/freetype_utils.h"
@@ -38,7 +41,6 @@
 #include <windows.h>
 #endif
 
-#include <queue>
 #include <map>
 
 namespace app {
@@ -137,6 +139,7 @@ FontPopup::FontPopup()
 
   addChild(m_popup);
 
+  m_popup->search()->Change.connect(base::Bind<void>(&FontPopup::onSearchChange, this));
   m_popup->loadFont()->Click.connect(base::Bind<void>(&FontPopup::onLoadFont, this));
   m_listBox.setFocusMagnet(true);
   m_listBox.Change.connect(base::Bind<void>(&FontPopup::onChangeFont, this));
@@ -144,43 +147,16 @@ FontPopup::FontPopup()
 
   m_popup->view()->attachToView(&m_listBox);
 
-  std::queue<std::string> fontDirs;
-#if _WIN32
-  {
-    std::vector<wchar_t> buf(MAX_PATH);
-    HRESULT hr = SHGetFolderPath(NULL, CSIDL_FONTS, NULL,
-                                 SHGFP_TYPE_DEFAULT, &buf[0]);
-    if (hr == S_OK) {
-      fontDirs.push(base::to_utf8(&buf[0]));
-    }
-  }
-#elif __APPLE__
-  {
-    fontDirs.push("/System/Library/Fonts/");
-    fontDirs.push("/Library/Fonts");
-    fontDirs.push("~/Library/Fonts");
-  }
-#else  // Unix-like
-  {
-    fontDirs.push("/usr/share/fonts");
-    fontDirs.push("/usr/local/share/fonts");
-    fontDirs.push("~/.fonts");
-  }
-#endif
+  std::vector<std::string> fontDirs;
+  get_font_dirs(fontDirs);
 
   // Create a list of fullpaths to every font found in all font
   // directories (fontDirs)
   std::vector<std::string> files;
-  while (!fontDirs.empty()) {
-    std::string fontDir = fontDirs.front();
-    fontDirs.pop();
-
-    auto fontDirFiles = base::list_files(fontDir);
-    for (const auto& file : fontDirFiles) {
+  for (const auto& fontDir : fontDirs) {
+    for (const auto& file : base::list_files(fontDir)) {
       std::string fullpath = base::join_path(fontDir, file);
-      if (base::is_directory(fullpath))
-        fontDirs.push(fullpath); // Add subdirectory
-      else
+      if (base::is_file(fullpath))
         files.push_back(fullpath);
     }
   }
@@ -194,7 +170,9 @@ FontPopup::FontPopup()
 
   // Create one FontItem for each font
   for (auto& file : files) {
-    if (base::string_to_lower(base::get_file_extension(file)) == "ttf")
+    std::string ext = base::string_to_lower(base::get_file_extension(file));
+    if (ext == "ttf" || ext == "ttc" ||
+        ext == "otf" || ext == "dfont")
       m_listBox.addChild(new FontItem(file));
   }
 
@@ -213,6 +191,23 @@ void FontPopup::showPopup(const gfx::Rect& bounds)
   setHotRegion(gfx::Region(gfx::Rect(bounds).enlarge(32 * guiscale())));
 
   openWindow();
+}
+
+void FontPopup::onSearchChange()
+{
+  std::string searchText = m_popup->search()->text();
+  Widget* firstItem = nullptr;
+
+  MatchWords match(searchText);
+  for (auto child : m_listBox.children()) {
+    bool visible = match(child->text());
+    if (visible && !firstItem)
+      firstItem = child;
+    child->setVisible(visible);
+  }
+
+  m_listBox.selectChild(firstItem);
+  layout();
 }
 
 void FontPopup::onChangeFont()
