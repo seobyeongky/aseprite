@@ -207,6 +207,7 @@ add_library(app-lib
   cmd/set_palette.cpp
   cmd/set_pixel_format.cpp
   cmd/set_pixel_ratio.cpp
+  cmd/set_pivot.cpp
   cmd/set_slice_key.cpp
   cmd/set_slice_name.cpp
   cmd/set_sprite_size.cpp

@@ -9,6 +9,7 @@
 #endif
 
 #include "app/cmd/set_pixel_ratio.h"
+#include "app/cmd/set_pivot.h"
 #include "app/color.h"
 #include "app/commands/command.h"
 #include "app/context_access.h"
@@ -118,6 +119,11 @@ void SpritePropertiesCommand::onExecute(Context* context)
     // Pixel ratio
     window.pixelRatio()->setValue(
       base::convert_to<std::string>(sprite->pixelRatio()));
+
+    window.pivotX()->setText(
+      base::convert_to<std::string>(sprite->pivotX()));
+    window.pivotY()->setText(
+      base::convert_to<std::string>(sprite->pivotY()));
   }
 
   window.remapWindow();
@@ -136,8 +142,13 @@ void SpritePropertiesCommand::onExecute(Context* context)
     PixelRatio pixelRatio =
       base::convert_to<PixelRatio>(window.pixelRatio()->getValue());
 
+    double pivotX = window.pivotX()->textDouble();
+    double pivotY = window.pivotY()->textDouble();
+
     if (index != sprite->transparentColor() ||
-        pixelRatio != sprite->pixelRatio()) {
+        pixelRatio != sprite->pixelRatio() ||
+        pivotX != sprite->pivotX() ||
+        pivotY != sprite->pivotY()) {
       Transaction transaction(writer.context(), "Change Sprite Properties");
       DocumentApi api = writer.document()->getApi(transaction);
 
@@ -146,6 +157,9 @@ void SpritePropertiesCommand::onExecute(Context* context)
 
       if (pixelRatio != sprite->pixelRatio())
         transaction.execute(new cmd::SetPixelRatio(sprite, pixelRatio));
+
+      if (pivotX != sprite->pivotX() || pivotY != sprite->pivotY())
+        transaction.execute(new cmd::SetPivot(sprite, gfx::PointF(pivotX, pivotY)));
 
       transaction.commit();
 

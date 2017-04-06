@@ -40,6 +40,7 @@ Sprite::Sprite(PixelFormat format, int width, int height, int ncolors)
   , m_frames(1)
   , m_frameTags(this)
   , m_slices(this)
+  , m_pivot(0.5, 0.5)
 {
   ASSERT(width > 0 && height > 0);
 
@@ -147,6 +148,17 @@ void Sprite::setSize(int width, int height)
   ASSERT(height > 0);
 
   m_spec.setSize(width, height);
+}
+
+void Sprite::setPivot(double x, double y)
+{
+  m_pivot.x = x;
+  m_pivot.y = y;
+}
+
+void Sprite::setPivot(gfx::PointF pivot)
+{
+  m_pivot = pivot;
 }
 
 bool Sprite::needAlpha() const

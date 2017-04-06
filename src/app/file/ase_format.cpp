@@ -80,6 +80,8 @@ struct ASE_Header {
   uint16_t ncolors;
   uint8_t pixel_width;
   uint8_t pixel_height;
+  int16_t pivot_x_percent;
+  int16_t pivot_y_percent;
 };
 
 struct ASE_FrameHeader {
@@ -225,6 +227,9 @@ bool AseFormat::onLoad(FileOp* fop)
 
   // Set pixel ratio
   sprite->setPixelRatio(PixelRatio(header.pixel_width, header.pixel_height));
+
+  // Set pivot
+  sprite->setPivot(header.pivot_x_percent / 100.0, header.pivot_y_percent / 100.0);
 
   // Prepare variables for layer chunks
   Layer* last_layer = sprite->root();
@@ -530,6 +535,8 @@ static bool ase_file_read_header(FILE* f, ASE_Header* header)
   header->ncolors    = fgetw(f);
   header->pixel_width = fgetc(f);
   header->pixel_height = fgetc(f);
+  header->pivot_x_percent = fgetw(f);
+  header->pivot_y_percent = fgetw(f);
 
   if (header->ncolors == 0)     // 0 means 256 (old .ase files)
     header->ncolors = 256;
@@ -568,6 +575,8 @@ static void ase_file_prepare_header(FILE* f, ASE_Header* header, const Sprite* s
   header->ncolors = sprite->palette(firstFrame)->size();
   header->pixel_width = sprite->pixelRatio().w;
   header->pixel_height = sprite->pixelRatio().h;
+  header->pivot_x_percent = static_cast<int16_t>(100 * sprite->pivotX());
+  header->pivot_y_percent = static_cast<int16_t>(100 * sprite->pivotY());
 }
 
 static void ase_file_write_header(FILE* f, ASE_Header* header)
@@ -591,6 +600,8 @@ static void ase_file_write_header(FILE* f, ASE_Header* header)
   fputw(header->ncolors, f);
   fputc(header->pixel_width, f);
   fputc(header->pixel_height, f);
+  fputw(header->pivot_x_percent, f);
+  fputw(header->pivot_y_percent, f);
 
   fseek(f, header->pos+128, SEEK_SET);
 }
