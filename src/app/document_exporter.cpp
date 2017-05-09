@@ -516,7 +516,7 @@ void DocumentExporter::captureSamples(Samples& samples)
       }
 
       // Re-use linked samples
-      if (link) {
+      if (link && false) {
         for (const Sample& other : samples) {
           if (other.sprite() == sprite &&
               other.layer() == layer &&
