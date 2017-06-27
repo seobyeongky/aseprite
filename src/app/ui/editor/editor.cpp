@@ -24,6 +24,7 @@
 #include "app/modules/palettes.h"
 #include "app/pref/preferences.h"
 #include "app/tools/active_tool.h"
+#include "app/tools/controller.h"
 #include "app/tools/ink.h"
 #include "app/tools/tool.h"
 #include "app/tools/tool_box.h"
@@ -59,6 +60,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <limits>
 
 namespace app {
 
@@ -163,7 +165,6 @@ Editor::Editor(Document* document, EditorFlags flags)
   , m_frame(frame_t(0))
   , m_docPref(Preferences::instance().document(document))
   , m_brushPreview(this)
-  , m_lastDrawingPosition(-1, -1)
   , m_toolLoopModifiers(tools::ToolLoopModifiers::kNone)
   , m_padding(0, 0)
   , m_antsTimer(100, this)
@@ -174,6 +175,8 @@ Editor::Editor(Document* document, EditorFlags flags)
   , m_secondaryButton(false)
   , m_aniSpeed(1.0)
   , m_isPlaying(false)
+  , m_showGuidesThisCel(nullptr)
+  , m_tagFocusBand(-1)
 {
   m_proj.setPixelRatio(m_sprite->pixelRatio());
 
@@ -343,7 +346,9 @@ void Editor::setLayer(const Layer* layer)
         // If the user want to see the active layer edges...
         m_docPref.show.layerEdges() ||
         // If there is a different opacity for nonactive-layers
-        Preferences::instance().experimental.nonactiveLayersOpacity() < 255) {
+        Preferences::instance().experimental.nonactiveLayersOpacity() < 255 ||
+        // If the automatic cel guides are visible...
+        m_showGuidesThisCel) {
       // We've to redraw the whole editor
       invalidate();
     }
@@ -755,31 +760,25 @@ void Editor::drawSpriteUnclippedRect(ui::Graphics* g, const gfx::Rect& _rc)
   if (isActive() &&
       (m_flags & Editor::kShowSymmetryLine) &&
       Preferences::instance().symmetryMode.enabled()) {
-    switch (m_docPref.symmetry.mode()) {
-      case app::gen::SymmetryMode::NONE:
-        // Do nothing
-        break;
-      case app::gen::SymmetryMode::HORIZONTAL: {
-        double x = m_docPref.symmetry.xAxis();
-        if (x > 0) {
-          gfx::Color color = color_utils::color_for_ui(m_docPref.grid.color());
-          g->drawVLine(color,
-                       spriteRect.x + m_proj.applyX<double>(x),
-                       enclosingRect.y,
-                       enclosingRect.h);
-        }
-        break;
+    int mode = int(m_docPref.symmetry.mode());
+    if (mode & int(app::gen::SymmetryMode::HORIZONTAL)) {
+      double x = m_docPref.symmetry.xAxis();
+      if (x > 0) {
+        gfx::Color color = color_utils::color_for_ui(m_docPref.grid.color());
+        g->drawVLine(color,
+                     spriteRect.x + int(m_proj.applyX<double>(x)),
+                     enclosingRect.y,
+                     enclosingRect.h);
       }
-      case app::gen::SymmetryMode::VERTICAL: {
-        double y = m_docPref.symmetry.yAxis();
-        if (y > 0) {
-          gfx::Color color = color_utils::color_for_ui(m_docPref.grid.color());
-          g->drawHLine(color,
-                       enclosingRect.x,
-                       spriteRect.y + m_proj.applyY<double>(y),
-                       enclosingRect.w);
-        }
-        break;
+    }
+    if (mode & int(app::gen::SymmetryMode::VERTICAL)) {
+      double y = m_docPref.symmetry.yAxis();
+      if (y > 0) {
+        gfx::Color color = color_utils::color_for_ui(m_docPref.grid.color());
+        g->drawHLine(color,
+                     enclosingRect.x,
+                     spriteRect.y + int(m_proj.applyY<double>(y)),
+                     enclosingRect.w);
       }
     }
   }
@@ -793,22 +792,22 @@ void Editor::drawSpriteUnclippedRect(ui::Graphics* g, const gfx::Rect& _rc)
       enclosingRect.x, enclosingRect.y+enclosingRect.h, enclosingRect.w);
   }
 
-  // Draw active cel edges
-  if (m_docPref.show.layerEdges() &&
+  // Draw active layer/cel edges
+  bool showGuidesThisCel = this->showAutoCelGuides();
+  if ((m_docPref.show.layerEdges() || showGuidesThisCel) &&
       // Show layer edges only on "standby" like states where brush
       // preview is shown (e.g. with this we avoid to showing the
       // edges in states like DrawingState, etc.).
       m_state->requireBrushPreview()) {
     Cel* cel = (m_layer ? m_layer->cel(m_frame): nullptr);
     if (cel) {
-      gfx::Rect layerEdges;
-      if (m_layer->isReference()) {
-        layerEdges = editorToScreenF(cel->boundsF()).offset(gfx::PointF(-bounds().origin()));
-      }
-      else {
-        layerEdges = editorToScreen(cel->bounds()).offset(-bounds().origin());
-      }
-      g->drawRect(theme->colors.editorLayerEdges(), layerEdges);
+      drawCelBounds(
+        g, cel,
+        color_utils::color_for_ui(Preferences::instance().guides.layerEdgesColor()));
+
+      if (showGuidesThisCel &&
+          m_showGuidesThisCel != cel)
+        drawCelGuides(g, cel, m_showGuidesThisCel);
     }
   }
 
@@ -859,7 +858,9 @@ void Editor::drawMask(Graphics* g)
   int y = m_padding.y;
 
   for (const auto& seg : *m_document->getMaskBoundaries()) {
-    CheckedDrawMode checked(g, m_antsOffset);
+    CheckedDrawMode checked(g, m_antsOffset,
+                            gfx::rgba(0, 0, 0, 255),
+                            gfx::rgba(255, 255, 255, 255));
     gfx::Rect bounds = m_proj.apply(seg.bounds());
 
     if (m_proj.scaleX() >= 1.0) {
@@ -1018,6 +1019,156 @@ void Editor::drawSlices(ui::Graphics* g)
   }
 }
 
+void Editor::drawCelBounds(ui::Graphics* g, const Cel* cel, const gfx::Color color)
+{
+  g->drawRect(color, getCelScreenBounds(cel));
+}
+
+void Editor::drawCelGuides(ui::Graphics* g, const Cel* cel, const Cel* mouseCel)
+{
+  gfx::Rect
+    sprCelBounds = cel->bounds(),
+    scrCelBounds = getCelScreenBounds(cel),
+    scrCmpBounds, sprCmpBounds;
+  if (mouseCel) {
+    scrCmpBounds = getCelScreenBounds(mouseCel);
+    sprCmpBounds = mouseCel->bounds();
+
+    drawCelBounds(
+      g, mouseCel,
+      color_utils::color_for_ui(Preferences::instance().guides.autoGuidesColor()));
+  }
+  // Use whole canvas
+  else {
+    sprCmpBounds = m_sprite->bounds();
+    scrCmpBounds = editorToScreen(sprCmpBounds).offset(gfx::Point(-bounds().origin()));
+  }
+
+  const int midX = scrCelBounds.x+scrCelBounds.w/2;
+  const int midY = scrCelBounds.y+scrCelBounds.h/2;
+
+  if (sprCelBounds.x2() < sprCmpBounds.x) {
+    drawCelHGuide(g,
+                  sprCelBounds.x2(), sprCmpBounds.x,
+                  scrCelBounds.x2(), scrCmpBounds.x, midY,
+                  scrCelBounds, scrCmpBounds, scrCmpBounds.x);
+  }
+  else if (sprCelBounds.x > sprCmpBounds.x2()) {
+    drawCelHGuide(g,
+                  sprCmpBounds.x2(), sprCelBounds.x,
+                  scrCmpBounds.x2(), scrCelBounds.x, midY,
+                  scrCelBounds, scrCmpBounds, scrCmpBounds.x2()-1);
+  }
+  else {
+    if (sprCelBounds.x != sprCmpBounds.x &&
+        sprCelBounds.x2() != sprCmpBounds.x) {
+      drawCelHGuide(g,
+                    sprCmpBounds.x, sprCelBounds.x,
+                    scrCmpBounds.x, scrCelBounds.x, midY,
+                    scrCelBounds, scrCmpBounds, scrCmpBounds.x);
+    }
+    if (sprCelBounds.x != sprCmpBounds.x2() &&
+        sprCelBounds.x2() != sprCmpBounds.x2()) {
+      drawCelHGuide(g,
+                    sprCmpBounds.x2(), sprCelBounds.x2(),
+                    scrCmpBounds.x2(), scrCelBounds.x2(), midY,
+                    scrCelBounds, scrCmpBounds, scrCmpBounds.x2()-1);
+    }
+  }
+
+  if (sprCelBounds.y2() < sprCmpBounds.y) {
+    drawCelVGuide(g,
+                  sprCelBounds.y2(), sprCmpBounds.y,
+                  scrCelBounds.y2(), scrCmpBounds.y, midX,
+                  scrCelBounds, scrCmpBounds, scrCmpBounds.y);
+  }
+  else if (sprCelBounds.y > sprCmpBounds.y2()) {
+    drawCelVGuide(g,
+                  sprCmpBounds.y2(), sprCelBounds.y,
+                  scrCmpBounds.y2(), scrCelBounds.y, midX,
+                  scrCelBounds, scrCmpBounds, scrCmpBounds.y2()-1);
+  }
+  else {
+    if (sprCelBounds.y != sprCmpBounds.y &&
+        sprCelBounds.y2() != sprCmpBounds.y) {
+      drawCelVGuide(g,
+                    sprCmpBounds.y, sprCelBounds.y,
+                    scrCmpBounds.y, scrCelBounds.y, midX,
+                    scrCelBounds, scrCmpBounds, scrCmpBounds.y);
+    }
+    if (sprCelBounds.y != sprCmpBounds.y2() &&
+        sprCelBounds.y2() != sprCmpBounds.y2()) {
+      drawCelVGuide(g,
+                    sprCmpBounds.y2(), sprCelBounds.y2(),
+                    scrCmpBounds.y2(), scrCelBounds.y2(), midX,
+                    scrCelBounds, scrCmpBounds, scrCmpBounds.y2()-1);
+    }
+  }
+}
+
+void Editor::drawCelHGuide(ui::Graphics* g,
+                           const int sprX1, const int sprX2,
+                           const int scrX1, const int scrX2, const int scrY,
+                           const gfx::Rect& scrCelBounds, const gfx::Rect& scrCmpBounds,
+                           const int dottedX)
+{
+  gfx::Color color = color_utils::color_for_ui(Preferences::instance().guides.autoGuidesColor());
+  g->drawHLine(color, scrX1, scrY, scrX2 - scrX1);
+
+  // Vertical guide to touch the horizontal line
+  {
+    CheckedDrawMode checked(g, 0, color, gfx::ColorNone);
+
+    if (scrY < scrCmpBounds.y)
+      g->drawVLine(color, dottedX, scrCelBounds.y, scrCmpBounds.y - scrCelBounds.y);
+    else if (scrY > scrCmpBounds.y2())
+      g->drawVLine(color, dottedX, scrCmpBounds.y2(), scrCelBounds.y2() - scrCmpBounds.y2());
+  }
+
+  auto text = base::convert_to<std::string>(ABS(sprX2 - sprX1)) + "px";
+  const int textW = Graphics::measureUITextLength(text, font());
+  g->drawText(text,
+              color_utils::blackandwhite_neg(color), color,
+              gfx::Point((scrX1+scrX2)/2-textW/2, scrY-textHeight()));
+}
+
+void Editor::drawCelVGuide(ui::Graphics* g,
+                           const int sprY1, const int sprY2,
+                           const int scrY1, const int scrY2, const int scrX,
+                           const gfx::Rect& scrCelBounds, const gfx::Rect& scrCmpBounds,
+                           const int dottedY)
+{
+  gfx::Color color = color_utils::color_for_ui(Preferences::instance().guides.autoGuidesColor());
+  g->drawVLine(color, scrX, scrY1, scrY2 - scrY1);
+
+  // Horizontal guide to touch the vertical line
+  {
+    CheckedDrawMode checked(g, 0, color, gfx::ColorNone);
+
+    if (scrX < scrCmpBounds.x)
+      g->drawHLine(color, scrCelBounds.x, dottedY, scrCmpBounds.x - scrCelBounds.x);
+    else if (scrX > scrCmpBounds.x2())
+      g->drawHLine(color, scrCmpBounds.x2(), dottedY, scrCelBounds.x2() - scrCmpBounds.x2());
+  }
+
+  auto text = base::convert_to<std::string>(ABS(sprY2 - sprY1)) + "px";
+  g->drawText(text,
+              color_utils::blackandwhite_neg(color), color,
+              gfx::Point(scrX, (scrY1+scrY2)/2-textHeight()/2));
+}
+
+gfx::Rect Editor::getCelScreenBounds(const Cel* cel)
+{
+  gfx::Rect layerEdges;
+  if (m_layer->isReference()) {
+    layerEdges = editorToScreenF(cel->boundsF()).offset(gfx::PointF(-bounds().origin()));
+  }
+  else {
+    layerEdges = editorToScreen(cel->bounds()).offset(-bounds().origin());
+  }
+  return layerEdges;
+}
+
 void Editor::flashCurrentLayer()
 {
   if (!Preferences::instance().experimental.flashLayer())
@@ -1059,7 +1210,7 @@ gfx::Point Editor::autoScroll(MouseMessage* msg, AutoScroll dir)
     return mousePos;
 
   // Hide the brush preview
-  //HideBrushPreview hide(editor->brushPreview());
+  //HideBrushPreview hide(m_brushPreview);
   View* view = View::getView(this);
   gfx::Rect vp = view->viewportBounds();
 
@@ -1200,17 +1351,25 @@ void Editor::setCustomizationDelegate(EditorCustomizationDelegate* delegate)
   m_customizationDelegate = delegate;
 }
 
+Rect Editor::getViewportBounds()
+{
+  return screenToEditor(View::getView(this)->viewportBounds());
+}
+
 // Returns the visible area of the active sprite.
 Rect Editor::getVisibleSpriteBounds()
 {
+  if (m_sprite)
+    return getViewportBounds().createIntersection(m_sprite->bounds());
+
+  // This cannot happen, the sprite must be != nullptr. In old
+  // Aseprite versions we were using one Editor to show multiple
+  // sprites (switching the sprite inside the editor). Now we have one
+  // (or more) editor(s) for each sprite.
+  ASSERT(false);
+
   // Return an empty rectangle if there is not a active sprite.
-  if (!m_sprite) return Rect();
-
-  View* view = View::getView(this);
-  Rect vp = view->viewportBounds();
-  vp = screenToEditor(vp);
-
-  return vp.createIntersection(m_sprite->bounds());
+  return Rect();
 }
 
 // Changes the scroll to see the given point as the center of the editor.
@@ -1291,14 +1450,27 @@ void Editor::updateToolLoopModifiersIndicators()
                      int(tools::ToolLoopModifiers::kAddSelection) |
                      int(tools::ToolLoopModifiers::kSubtractSelection)));
 
-      // Shape tools (line, curves, rectangles, etc.)
-      action = m_customizationDelegate->getPressedKeyAction(KeyContext::ShapeTool);
-      if (int(action & KeyAction::MoveOrigin))
-        modifiers |= int(tools::ToolLoopModifiers::kMoveOrigin);
-      if (int(action & KeyAction::SquareAspect))
-        modifiers |= int(tools::ToolLoopModifiers::kSquareAspect);
-      if (int(action & KeyAction::DrawFromCenter))
-        modifiers |= int(tools::ToolLoopModifiers::kFromCenter);
+      tools::Controller* controller =
+        (App::instance()->activeToolManager()->selectedTool() ?
+         App::instance()->activeToolManager()->selectedTool()->getController(0): nullptr);
+
+      // Shape tools modifiers (line, curves, rectangles, etc.)
+      if (controller && controller->isTwoPoints()) {
+        action = m_customizationDelegate->getPressedKeyAction(KeyContext::ShapeTool);
+        if (int(action & KeyAction::MoveOrigin))
+          modifiers |= int(tools::ToolLoopModifiers::kMoveOrigin);
+        if (int(action & KeyAction::SquareAspect))
+          modifiers |= int(tools::ToolLoopModifiers::kSquareAspect);
+        if (int(action & KeyAction::DrawFromCenter))
+          modifiers |= int(tools::ToolLoopModifiers::kFromCenter);
+      }
+
+      // Freehand modifiers
+      if (controller && controller->isFreehand()) {
+        action = m_customizationDelegate->getPressedKeyAction(KeyContext::FreehandTool);
+        if (int(action & KeyAction::AngleSnapFromLastPoint))
+          modifiers |= int(tools::ToolLoopModifiers::kSquareAspect);
+      }
     }
     else {
       // We update the selection mode only if we're not selecting.
@@ -1363,6 +1535,20 @@ app::Color Editor::getColorByPosition(const gfx::Point& mousePos)
     return app::Color::fromMask();
 }
 
+bool Editor::startStraightLineWithFreehandTool()
+{
+  tools::Tool* tool = App::instance()->activeToolManager()->selectedTool();
+  return
+    (isActive() &&
+     (hasMouse() || hasCapture()) &&
+     tool &&
+     tool->getController(0)->isFreehand() &&
+     tool->getInk(0)->isPaint() &&
+     (getCustomizationDelegate()
+      ->getPressedKeyAction(KeyContext::FreehandTool) & KeyAction::StraightLineFromLastPoint) == KeyAction::StraightLineFromLastPoint &&
+     document()->lastDrawingPoint() != app::Document::NoLastDrawingPoint());
+}
+
 //////////////////////////////////////////////////////////////////////
 // Message handler for the editor
 
@@ -1407,6 +1593,7 @@ bool Editor::onProcessMessage(Message* msg)
 
         m_oldPos = mouseMsg->position();
         updateToolByTipProximity(mouseMsg->pointerType());
+        updateAutoCelGuides(msg);
 
         // Only when we right-click with the regular "paint bg-color
         // right-click mode" we will mark indicate that the secondary
@@ -1433,6 +1620,7 @@ bool Editor::onProcessMessage(Message* msg)
         MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
 
         updateToolByTipProximity(mouseMsg->pointerType());
+        updateAutoCelGuides(msg);
 
         return m_state->onMouseMove(this, static_cast<MouseMessage*>(msg));
       }
@@ -1445,6 +1633,7 @@ bool Editor::onProcessMessage(Message* msg)
         bool result = m_state->onMouseUp(this, mouseMsg);
 
         updateToolByTipProximity(mouseMsg->pointerType());
+        updateAutoCelGuides(msg);
 
         if (!hasCapture()) {
           App::instance()->activeToolManager()->releaseButtons();
@@ -1486,6 +1675,7 @@ bool Editor::onProcessMessage(Message* msg)
         bool used = m_state->onKeyDown(this, static_cast<KeyMessage*>(msg));
 
         updateToolLoopModifiersIndicators();
+        updateAutoCelGuides(msg);
         if (hasMouse()) {
           updateQuicktool();
           setCursor(ui::get_mouse_position());
@@ -1502,6 +1692,7 @@ bool Editor::onProcessMessage(Message* msg)
         bool used = m_state->onKeyUp(this, static_cast<KeyMessage*>(msg));
 
         updateToolLoopModifiersIndicators();
+        updateAutoCelGuides(msg);
         if (hasMouse()) {
           updateQuicktool();
           setCursor(ui::get_mouse_position());
@@ -1650,6 +1841,21 @@ void Editor::onSpritePixelRatioChanged(doc::DocumentEvent& ev)
   invalidate();
 }
 
+void Editor::onRemoveCel(DocumentEvent& ev)
+{
+  m_showGuidesThisCel = nullptr;
+}
+
+void Editor::onAddFrameTag(DocumentEvent& ev)
+{
+  m_tagFocusBand = -1;
+}
+
+void Editor::onRemoveFrameTag(DocumentEvent& ev)
+{
+  m_tagFocusBand = -1;
+}
+
 void Editor::setCursor(const gfx::Point& mouseScreenPos)
 {
   bool used = false;
@@ -1658,11 +1864,6 @@ void Editor::setCursor(const gfx::Point& mouseScreenPos)
 
   if (!used)
     showMouseCursor(kArrowCursor);
-}
-
-void Editor::setLastDrawingPosition(const gfx::Point& pos)
-{
-  m_lastDrawingPosition = pos;
 }
 
 bool Editor::canDraw()
@@ -1699,17 +1900,9 @@ EditorHit Editor::calcHit(const gfx::Point& mouseScreenPos)
             gfx::Rect bounds = editorToScreen(key->bounds());
             gfx::Rect center = key->center();
 
-            // Only move slice
-            if (ink->isMoveSlice()) {
-              if (bounds.contains(mouseScreenPos)) {
-                EditorHit hit(EditorHit::SliceBounds);
-                hit.setBorder(CENTER | MIDDLE);
-                hit.setSlice(slice);
-                return hit;
-              }
-            }
-            else if (bounds.contains(mouseScreenPos) &&
-                     !bounds.shrink(5*guiscale()).contains(mouseScreenPos)) {
+            // Move bounds
+            if (bounds.contains(mouseScreenPos) &&
+                !bounds.shrink(5*guiscale()).contains(mouseScreenPos)) {
               int border =
                 (mouseScreenPos.x <= bounds.x ? LEFT: 0) |
                 (mouseScreenPos.y <= bounds.y ? TOP: 0) |
@@ -1721,7 +1914,9 @@ EditorHit Editor::calcHit(const gfx::Point& mouseScreenPos)
               hit.setSlice(slice);
               return hit;
             }
-            else if (!center.isEmpty()) {
+
+            // Move center
+            if (!center.isEmpty()) {
               center = editorToScreen(
                 center.offset(key->bounds().origin()));
 
@@ -1741,6 +1936,14 @@ EditorHit Editor::calcHit(const gfx::Point& mouseScreenPos)
                 hit.setSlice(slice);
               return hit;
               }
+            }
+
+            // Move all the slice
+            if (bounds.contains(mouseScreenPos)) {
+              EditorHit hit(EditorHit::SliceBounds);
+              hit.setBorder(CENTER | MIDDLE);
+              hit.setSlice(slice);
+              return hit;
             }
           }
         }
@@ -1848,24 +2051,32 @@ void Editor::pasteImage(const Image* image, const Mask* mask)
   int x = mask->bounds().x;
   int y = mask->bounds().y;
   {
-    Rect visibleBounds = getVisibleSpriteBounds();
+    const Rect visibleBounds = getViewportBounds();
+    const Point maskCenter = mask->bounds().center();
 
     // If the pasted image original location center point isn't
     // visible, we center the image in the editor's visible bounds.
-    if (!visibleBounds.contains(mask->bounds().center())) {
+    if (maskCenter.x < visibleBounds.x ||
+        maskCenter.x >= visibleBounds.x2()) {
       x = visibleBounds.x + visibleBounds.w/2 - image->width()/2;
-      y = visibleBounds.y + visibleBounds.h/2 - image->height()/2;
     }
     // In other case, if the center is visible, we put the pasted
     // image in its original location.
     else {
       x = MID(visibleBounds.x-image->width(), x, visibleBounds.x+visibleBounds.w-1);
+    }
+
+    if (maskCenter.y < visibleBounds.y ||
+        maskCenter.y >= visibleBounds.y2()) {
+      y = visibleBounds.y + visibleBounds.h/2 - image->height()/2;
+    }
+    else {
       y = MID(visibleBounds.y-image->height(), y, visibleBounds.y+visibleBounds.h-1);
     }
 
-    // Also we always limit the image inside the sprite's bounds.
-    x = MID(0, x, sprite->width() - image->width());
-    y = MID(0, y, sprite->height() - image->height());
+    // Also we always limit the 1 image pixel inside the sprite's bounds.
+    x = MID(-image->width()+1, x, sprite->width()-1);
+    y = MID(-image->height()+1, y, sprite->height()-1);
   }
 
   // Clear brush preview, as the extra cel will be replaced with the
@@ -2051,10 +2262,11 @@ void Editor::setAnimationSpeedMultiplier(double speed)
   m_aniSpeed = speed;
 }
 
-void Editor::showMouseCursor(CursorType cursorType)
+void Editor::showMouseCursor(CursorType cursorType,
+                             const Cursor* cursor)
 {
   m_brushPreview.hide();
-  ui::set_mouse_cursor(cursorType);
+  ui::set_mouse_cursor(cursorType, cursor);
 }
 
 void Editor::showBrushPreview(const gfx::Point& screenPos)
@@ -2100,6 +2312,41 @@ void Editor::dropMovingPixels()
 void Editor::invalidateIfActive()
 {
   if (isActive())
+    invalidate();
+}
+
+bool Editor::showAutoCelGuides()
+{
+  return
+    (getCurrentEditorInk()->isCelMovement() &&
+     m_docPref.show.autoGuides() &&
+     m_customizationDelegate &&
+     int(m_customizationDelegate->getPressedKeyAction(KeyContext::MoveTool) & KeyAction::AutoSelectLayer));
+}
+
+void Editor::updateAutoCelGuides(ui::Message* msg)
+{
+  Cel* oldShowGuidesThisCel = m_showGuidesThisCel;
+
+  // Check if the user is pressing the Ctrl or Cmd key on move
+  // tool to show automatic guides.
+  if (showAutoCelGuides() &&
+      m_state->requireBrushPreview()) {
+    ui::MouseMessage* mouseMsg = dynamic_cast<ui::MouseMessage*>(msg);
+
+    ColorPicker picker;
+    picker.pickColor(getSite(),
+                     screenToEditorF(mouseMsg ? mouseMsg->position():
+                                                ui::get_mouse_position()),
+                     m_proj, ColorPicker::FromComposition);
+    m_showGuidesThisCel = (picker.layer() ? picker.layer()->cel(m_frame):
+                                            nullptr);
+  }
+  else {
+    m_showGuidesThisCel = nullptr;
+  }
+
+  if (m_showGuidesThisCel != oldShowGuidesThisCel)
     invalidate();
 }
 

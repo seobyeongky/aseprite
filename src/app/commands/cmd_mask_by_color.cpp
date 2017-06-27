@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -101,15 +101,19 @@ void MaskByColorCommand::onExecute(Context* context)
   box4 = new Box(HORIZONTAL | HOMOGENEOUS);
   label_color = new Label("Color:");
   m_buttonColor = new ColorButton
-   (get_config_color("MaskColor", "Color",
-                     ColorBar::instance()->getFgColor()),
-    sprite->pixelFormat(),
-    false);
+    (get_config_color("MaskColor", "Color",
+                      ColorBar::instance()->getFgColor()),
+     sprite->pixelFormat(),
+     ColorButtonOptions());
   label_tolerance = new Label("Tolerance:");
   m_sliderTolerance = new Slider(0, 255, get_config_int("MaskColor", "Tolerance", 0));
   m_checkPreview = new CheckBox("&Preview");
   button_ok = new Button("&OK");
   button_cancel = new Button("&Cancel");
+
+  m_checkPreview->processMnemonicFromText();
+  button_ok->processMnemonicFromText();
+  button_cancel->processMnemonicFromText();
 
   if (get_config_bool("MaskColor", "Preview", true))
     m_checkPreview->setSelected(true);

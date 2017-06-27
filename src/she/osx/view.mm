@@ -57,12 +57,15 @@ Event::MouseButton get_mouse_buttons(NSEvent* event)
       return Event::RightButton;
   }
 
-  switch ([event buttonNumber]) {
+  switch (event.buttonNumber) {
     case 0: return Event::LeftButton; break;
     case 1: return Event::RightButton; break;
     case 2: return Event::MiddleButton; break;
-    // TODO add support for other buttons
+    // NSOtherMouseDown/Up/Dragged
+    case 3: return Event::X1Button; break;
+    case 4: return Event::X2Button; break;
   }
+
   return Event::MouseButton::NoneButton;
 }
 
@@ -166,8 +169,7 @@ using namespace she;
 {
   [super keyDown:event];
 
-  KeyScancode scancode = cocoavk_to_scancode(event.keyCode,
-                                             event.modifierFlags);
+  KeyScancode scancode = scancode_from_nsevent(event);
   Event ev;
   ev.setType(Event::KeyDown);
   ev.setScancode(scancode);
@@ -218,8 +220,7 @@ using namespace she;
 {
   [super keyUp:event];
 
-  KeyScancode scancode = cocoavk_to_scancode(event.keyCode,
-                                             event.modifierFlags);
+  KeyScancode scancode = scancode_from_nsevent(event);
   if (scancode >= 0 && scancode < kKeyScancodes)
     g_pressedKeys[scancode] = 0;
 

@@ -53,7 +53,9 @@ namespace ui {
     void setClipBounds(const gfx::Rect& rc);
     bool intersectClipRect(const gfx::Rect& rc);
 
-    void setDrawMode(DrawMode mode, int param = 0);
+    void setDrawMode(DrawMode mode, int param = 0,
+                     const gfx::Color a = gfx::ColorNone,
+                     const gfx::Color b = gfx::ColorNone);
 
     gfx::Color getPixel(int x, int y);
     void putPixel(gfx::Color color, int x, int y);
@@ -72,6 +74,7 @@ namespace ui {
     void drawRgbaSurface(she::Surface* surface, int x, int y);
     void drawRgbaSurface(she::Surface* surface, int srcx, int srcy, int dstx, int dsty, int w, int h);
     void drawColoredRgbaSurface(she::Surface* surface, gfx::Color color, int x, int y);
+    void drawColoredRgbaSurface(she::Surface* surface, gfx::Color color, int srcx, int srcy, int dstx, int dsty, int w, int h);
 
     void blit(she::Surface* src, int srcx, int srcy, int dstx, int dsty, int w, int h);
 
@@ -167,8 +170,10 @@ namespace ui {
 
   class CheckedDrawMode {
   public:
-    CheckedDrawMode(Graphics* g, int param) : m_graphics(g) {
-      m_graphics->setDrawMode(Graphics::DrawMode::Checked, param);
+    CheckedDrawMode(Graphics* g, int param,
+                    const gfx::Color a,
+                    const gfx::Color b) : m_graphics(g) {
+      m_graphics->setDrawMode(Graphics::DrawMode::Checked, param, a, b);
     }
 
     ~CheckedDrawMode() {

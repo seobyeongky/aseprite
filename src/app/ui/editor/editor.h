@@ -43,6 +43,7 @@ namespace gfx {
   class Region;
 }
 namespace ui {
+  class Cursor;
   class Graphics;
   class View;
 }
@@ -173,6 +174,9 @@ namespace app {
       return m_customizationDelegate;
     }
 
+    // Returns the visible area of the viewport in sprite coordinates.
+    gfx::Rect getViewportBounds();
+
     // Returns the visible area of the active sprite.
     gfx::Rect getVisibleSpriteBounds();
 
@@ -190,9 +194,6 @@ namespace app {
     tools::ToolLoopModifiers getToolLoopModifiers() const { return m_toolLoopModifiers; }
     bool isAutoSelectLayer() const;
     bool isSecondaryButton() const { return m_secondaryButton; }
-
-    gfx::Point lastDrawingPosition() const { return m_lastDrawingPosition; }
-    void setLastDrawingPosition(const gfx::Point& pos);
 
     // Returns true if we are able to draw in the current doc/sprite/layer/cel.
     bool canDraw();
@@ -239,7 +240,8 @@ namespace app {
     void setAnimationSpeedMultiplier(double speed);
 
     // Functions to be used in EditorState::onSetCursor()
-    void showMouseCursor(ui::CursorType cursorType);
+    void showMouseCursor(ui::CursorType cursorType,
+                         const ui::Cursor* cursor = nullptr);
     void showBrushPreview(const gfx::Point& pos);
 
     // Gets the brush preview controller.
@@ -254,6 +256,13 @@ namespace app {
     // IColorSource
     app::Color getColorByPosition(const gfx::Point& pos) override;
 
+    void setTagFocusBand(int value) { m_tagFocusBand = value; }
+    int tagFocusBand() const { return m_tagFocusBand; }
+
+    // Returns true if the Shift key to draw straight lines with a
+    // freehand tool is pressed.
+    bool startStraightLineWithFreehandTool();
+
   protected:
     bool onProcessMessage(ui::Message* msg) override;
     void onSizeHint(ui::SizeHintEvent& ev) override;
@@ -267,6 +276,9 @@ namespace app {
     // DocumentObserver impl
     void onExposeSpritePixels(doc::DocumentEvent& ev) override;
     void onSpritePixelRatioChanged(doc::DocumentEvent& ev) override;
+    void onRemoveCel(DocumentEvent& ev) override;
+    void onAddFrameTag(DocumentEvent& ev) override;
+    void onRemoveFrameTag(DocumentEvent& ev) override;
 
     // ActiveToolObserver impl
     void onActiveToolChange(tools::Tool* tool) override;
@@ -282,6 +294,19 @@ namespace app {
     void drawGrid(ui::Graphics* g, const gfx::Rect& spriteBounds, const gfx::Rect& gridBounds,
                   const app::Color& color, int alpha);
     void drawSlices(ui::Graphics* g);
+    void drawCelBounds(ui::Graphics* g, const Cel* cel, const gfx::Color color);
+    void drawCelGuides(ui::Graphics* g, const Cel* cel, const Cel* mouseCel);
+    void drawCelHGuide(ui::Graphics* g,
+                       const int sprX1, const int sprX2,
+                       const int scrX1, const int scrX2, const int scrY,
+                       const gfx::Rect& scrCelBounds, const gfx::Rect& scrCmpBounds,
+                       const int dottedX);
+    void drawCelVGuide(ui::Graphics* g,
+                       const int sprY1, const int sprY2,
+                       const int scrY1, const int scrY2, const int scrX,
+                       const gfx::Rect& scrCelBounds, const gfx::Rect& scrCmpBounds,
+                       const int dottedY);
+    gfx::Rect getCelScreenBounds(const Cel* cel);
 
     void setCursor(const gfx::Point& mouseScreenPos);
 
@@ -293,6 +318,8 @@ namespace app {
     gfx::Point calcExtraPadding(const render::Projection& proj);
 
     void invalidateIfActive();
+    bool showAutoCelGuides();
+    void updateAutoCelGuides(ui::Message* msg);
 
     // Stack of states. The top element in the stack is the current state (m_state).
     EditorStatesHistory m_statesHistory;
@@ -314,10 +341,6 @@ namespace app {
 
     // Brush preview
     BrushPreview m_brushPreview;
-
-    // Position used to draw straight lines using freehand tools + Shift key
-    // (EditorCustomizationDelegate::isStraightLineFromLastPoint() modifier)
-    gfx::Point m_lastDrawingPosition;
 
     tools::ToolLoopModifiers m_toolLoopModifiers;
 
@@ -358,6 +381,14 @@ namespace app {
     // Animation speed multiplier.
     double m_aniSpeed;
     bool m_isPlaying;
+
+    // The Cel that is above the mouse if the Ctrl (or Cmd) key is
+    // pressed (move key).
+    Cel* m_showGuidesThisCel;
+
+    // Focused tag band. Used by the Timeline to save/restore the
+    // focused tag band for each sprite/editor.
+    int m_tagFocusBand;
 
     static doc::ImageBufferPtr m_renderBuffer;
 

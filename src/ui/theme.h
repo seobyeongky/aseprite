@@ -52,13 +52,10 @@ namespace ui {
 
     void regenerate();
 
-    int guiscale() const { return m_guiscale; }
-    void setScale(int value) { m_guiscale = value; }
-
     virtual she::Font* getDefaultFont() const = 0;
     virtual she::Font* getWidgetFont(const Widget* widget) const = 0;
 
-    virtual Cursor* getCursor(CursorType type) = 0;
+    virtual Cursor* getStandardCursor(CursorType type) = 0;
     virtual void initWidget(Widget* widget) = 0;
     virtual void getWindowMask(Widget* widget, gfx::Region& region) = 0;
     virtual void setDecorativeWidgetBounds(Widget* widget);
@@ -67,7 +64,6 @@ namespace ui {
 
     virtual void paintEntry(PaintEvent& ev) = 0;
     virtual void paintListBox(PaintEvent& ev) = 0;
-    virtual void paintListItem(PaintEvent& ev) = 0;
     virtual void paintMenu(PaintEvent& ev) = 0;
     virtual void paintMenuItem(PaintEvent& ev) = 0;
     virtual void paintSlider(PaintEvent& ev) = 0;
@@ -118,6 +114,7 @@ namespace ui {
                            const gfx::Rect& rc,
                            const gfx::Rect& sprite,
                            const gfx::Rect& slices,
+                           const gfx::Color color,
                            const bool drawCenter = true);
 
     static  void drawTextBox(Graphics* g, Widget* textbox,
@@ -144,18 +141,10 @@ namespace ui {
                            const Style* style,
                            gfx::Size& sizeHint,
                            gfx::Border& borderHint);
-
-    int m_guiscale;
   };
 
   void set_theme(Theme* theme);
   Theme* get_theme();
-
-  // This value is a factor to multiply every screen size/coordinate.
-  // Every icon/graphics/font should be scaled to this factor.
-  inline int guiscale() {
-    return (get_theme() ? get_theme()->guiscale(): 1);
-  }
 
 } // namespace ui
 

@@ -1,5 +1,5 @@
 // Aseprite Render Library
-// Copyright (c) 2001-2016 David Capello
+// Copyright (c) 2001-2017 David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -10,7 +10,7 @@
 
 #include "render/quantization.h"
 
-#include "base/base.h"
+#include "base/unique_ptr.h"
 #include "doc/image_impl.h"
 #include "doc/images_collector.h"
 #include "doc/layer.h"
@@ -23,6 +23,7 @@
 #include "gfx/rgb.h"
 #include "render/ordered_dither.h"
 #include "render/render.h"
+#include "render/task_delegate.h"
 
 #include <algorithm>
 #include <limits>
@@ -36,11 +37,11 @@ using namespace gfx;
 
 Palette* create_palette_from_sprite(
   const Sprite* sprite,
-  frame_t fromFrame,
-  frame_t toFrame,
-  bool withAlpha,
+  const frame_t fromFrame,
+  const frame_t toFrame,
+  const bool withAlpha,
   Palette* palette,
-  PaletteOptimizerDelegate* delegate)
+  TaskDelegate* delegate)
 {
   PaletteOptimizer optimizer;
 
@@ -58,10 +59,10 @@ Palette* create_palette_from_sprite(
     optimizer.feedWithImage(flat_image.get(), withAlpha);
 
     if (delegate) {
-      if (!delegate->onPaletteOptimizerContinue())
+      if (!delegate->continueTask())
         return nullptr;
 
-      delegate->onPaletteOptimizerProgress(
+      delegate->notifyTaskProgress(
         double(frame-fromFrame+1) / double(toFrame-fromFrame+1));
     }
   }
@@ -71,8 +72,7 @@ Palette* create_palette_from_sprite(
     palette,
     // Transparent color is needed if we have transparent layers
     (sprite->backgroundLayer() &&
-     sprite->allLayersCount() == 1 ? -1: sprite->transparentColor()),
-    delegate);
+     sprite->allLayersCount() == 1 ? -1: sprite->transparentColor()));
 
   return palette;
 }
@@ -81,11 +81,13 @@ Image* convert_pixel_format(
   const Image* image,
   Image* new_image,
   PixelFormat pixelFormat,
-  DitheringMethod ditheringMethod,
+  DitheringAlgorithm ditheringAlgorithm,
+  const DitheringMatrix& ditheringMatrix,
   const RgbMap* rgbmap,
   const Palette* palette,
   bool is_background,
-  color_t new_mask_color)
+  color_t new_mask_color,
+  TaskDelegate* delegate)
 {
   if (!new_image)
     new_image = Image::create(pixelFormat, image->width(), image->height());
@@ -94,10 +96,19 @@ Image* convert_pixel_format(
   // RGB -> Indexed with ordered dithering
   if (image->pixelFormat() == IMAGE_RGB &&
       pixelFormat == IMAGE_INDEXED &&
-      ditheringMethod == DitheringMethod::ORDERED) {
-    BayerMatrix<8> matrix;
-    OrderedDither dither;
-    dither.ditherRgbImageToIndexed(matrix, image, new_image, 0, 0, rgbmap, palette);
+      ditheringAlgorithm != DitheringAlgorithm::None) {
+    base::UniquePtr<DitheringAlgorithmBase> dither;
+    switch (ditheringAlgorithm) {
+      case DitheringAlgorithm::Ordered:
+        dither.reset(new OrderedDither2(is_background ? -1: new_mask_color));
+        break;
+      case DitheringAlgorithm::Old:
+        dither.reset(new OrderedDither(is_background ? -1: new_mask_color));
+        break;
+    }
+    if (dither)
+      dither_rgb_image_to_indexed(
+        *dither, ditheringMatrix, image, new_image, 0, 0, rgbmap, palette, delegate);
     return new_image;
   }
 
@@ -158,8 +169,10 @@ Image* convert_pixel_format(
 
             if (a == 0)
               *dst_it = new_mask_color;
-            else
+            else if (rgbmap)
               *dst_it = rgbmap->mapColor(r, g, b, a);
+            else
+              *dst_it = palette->findBestfit(r, g, b, a, new_mask_color);
           }
           ASSERT(dst_it == dst_end);
           break;
@@ -215,8 +228,10 @@ Image* convert_pixel_format(
 
             if (a == 0)
               *dst_it = new_mask_color;
-            else
+            else if (rgbmap)
               *dst_it = rgbmap->mapColor(c, c, c, a);
+            else
+              *dst_it = palette->findBestfit(c, c, c, a, new_mask_color);
           }
           ASSERT(dst_it == dst_end);
           break;
@@ -301,7 +316,11 @@ Image* convert_pixel_format(
               g = rgba_getg(c);
               b = rgba_getb(c);
               a = rgba_geta(c);
-              *dst_it = rgbmap->mapColor(r, g, b, a);
+
+              if (rgbmap)
+                *dst_it = rgbmap->mapColor(r, g, b, a);
+              else
+                *dst_it = palette->findBestfit(r, g, b, a, new_mask_color);
             }
           }
           ASSERT(dst_it == dst_end);
@@ -377,8 +396,7 @@ void PaletteOptimizer::feedWithRgbaColor(color_t color)
   m_histogram.addSamples(color, 1);
 }
 
-void PaletteOptimizer::calculate(Palette* palette, int maskIndex,
-                                 PaletteOptimizerDelegate* delegate)
+void PaletteOptimizer::calculate(Palette* palette, int maskIndex)
 {
   bool addMask;
 

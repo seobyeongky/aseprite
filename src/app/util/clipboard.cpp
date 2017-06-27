@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -25,13 +25,14 @@
 #include "app/ui/color_bar.h"
 #include "app/ui/editor/editor.h"
 #include "app/ui/skin/skin_theme.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "app/ui_context.h"
 #include "app/util/clipboard.h"
 #include "app/util/clipboard_native.h"
 #include "app/util/new_image_from_mask.h"
 #include "base/shared_ptr.h"
 #include "doc/doc.h"
+#include "render/ordered_dither.h"
 #include "render/quantization.h"
 
 #include <stdexcept>
@@ -332,7 +333,9 @@ void paste()
         src_image.reset(
           render::convert_pixel_format(
             clipboard_image.get(), NULL, dstSpr->pixelFormat(),
-            DitheringMethod::NONE, dst_rgbmap, clipboard_palette.get(),
+            render::DitheringAlgorithm::None,
+            render::DitheringMatrix(),
+            dst_rgbmap, clipboard_palette.get(),
             false,
             0));
       }

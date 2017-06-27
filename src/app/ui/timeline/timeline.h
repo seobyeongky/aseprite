@@ -4,16 +4,17 @@
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
 
-#ifndef APP_UI_TIMELINE_H_INCLUDED
-#define APP_UI_TIMELINE_H_INCLUDED
+#ifndef APP_UI_TIMELINE_TIMELINE_H_INCLUDED
+#define APP_UI_TIMELINE_TIMELINE_H_INCLUDED
 #pragma once
 
 #include "app/document_range.h"
+#include "app/loop_tag.h"
 #include "app/pref/preferences.h"
-#include "app/ui/ani_controls.h"
 #include "app/ui/editor/editor_observer.h"
 #include "app/ui/input_chain_element.h"
 #include "app/ui/playable.h"
+#include "app/ui/timeline/ani_controls.h"
 #include "doc/document_observer.h"
 #include "doc/documents_observer.h"
 #include "doc/frame.h"
@@ -58,7 +59,8 @@ namespace app {
                  , public doc::DocumentsObserver
                  , public doc::DocumentObserver
                  , public app::EditorObserver
-                 , public app::InputChainElement {
+                 , public app::InputChainElement
+                 , public app::FrameTagProvider {
   public:
     typedef DocumentRange Range;
 
@@ -102,6 +104,12 @@ namespace app {
     // called from popup menus.
     void dropRange(DropOp op);
 
+    // FrameTagProvider impl
+    // Returns the active frame tag depending on the timeline status
+    // E.g. if other frame tags are collapsed, the focused band has
+    // priority and tags in other bands are ignored.
+    FrameTag* getFrameTagByFrame(const frame_t frame) override;
+
     // ScrollableViewDelegate impl
     gfx::Size visibleSize() const override;
     gfx::Point viewScroll() const override;
@@ -123,6 +131,8 @@ namespace app {
     void onRemoveFrame(doc::DocumentEvent& ev) override;
     void onSelectionChanged(doc::DocumentEvent& ev) override;
     void onLayerNameChange(doc::DocumentEvent& ev) override;
+    void onAddFrameTag(DocumentEvent& ev) override;
+    void onRemoveFrameTag(DocumentEvent& ev) override;
 
     // app::Context slots.
     void onAfterCommandExecution(CommandExecutionEvent& ev);
@@ -157,30 +167,23 @@ namespace app {
       frame_t frame;
       ObjectId frameTag;
       bool veryBottom;
+      int band;
 
-      Hit(int part = 0, layer_t layer = -1, frame_t frame = 0, ObjectId frameTag = NullId)
-        : part(part), layer(layer), frame(frame), frameTag(frameTag), veryBottom(false) {
-      }
-
-      bool operator!=(const Hit& other) const {
-        return
-          part != other.part ||
-          layer != other.layer ||
-          frame != other.frame ||
-          frameTag != other.frameTag;
-      }
-
+      Hit(int part = 0,
+          layer_t layer = -1,
+          frame_t frame = 0,
+          ObjectId frameTag = NullId,
+          int band = -1);
+      bool operator!=(const Hit& other) const;
       FrameTag* getFrameTag() const;
     };
 
     struct DropTarget {
-
       enum HHit {
         HNone,
         Before,
         After
       };
-
       enum VHit {
         VNone,
         Bottom,
@@ -189,10 +192,7 @@ namespace app {
         VeryBottom
       };
 
-      DropTarget() {
-        hhit = HNone;
-        vhit = VNone;
-      }
+      DropTarget();
 
       HHit hhit;
       VHit vhit;
@@ -202,30 +202,22 @@ namespace app {
       int xpos, ypos;
     };
 
-    struct LayerInfo {
-      Layer* layer;
-      int level;
-      LayerFlags inheritedFlags;
+    struct Row {
+      Row();
+      Row(Layer* layer,
+          const int level,
+          const LayerFlags inheritedFlags);
 
-      LayerInfo()
-        : layer(nullptr),
-          level(0),
-          inheritedFlags(LayerFlags::None) {
-      }
+      Layer* layer() const { return m_layer; }
+      int level() const { return m_level; }
 
-      LayerInfo(Layer* layer, int level, LayerFlags inheritedFlags)
-        : layer(layer),
-          level(level),
-          inheritedFlags(inheritedFlags) {
-      }
+      bool parentVisible() const;
+      bool parentEditable() const;
 
-      bool parentVisible() const {
-        return ((int(inheritedFlags) & int(LayerFlags::Visible)) != 0);
-      }
-
-      bool parentEditable() const {
-        return ((int(inheritedFlags) & int(LayerFlags::Editable)) != 0);
-      }
+    private:
+      Layer* m_layer;
+      int m_level;
+      LayerFlags m_inheritedFlags;
     };
 
     bool selectedLayersBounds(const SelectedLayers& layers,
@@ -270,7 +262,9 @@ namespace app {
     gfx::Rect getPartBounds(const Hit& hit) const;
     gfx::Rect getRangeBounds(const Range& range) const;
     void invalidateHit(const Hit& hit);
-    void regenerateLayers();
+    void regenerateRows();
+    void regenerateTagBands();
+    int visibleTagBands() const;
     void updateScrollBars();
     void updateByMousePos(ui::Message* msg, const gfx::Point& mousePos);
     Hit hitTest(ui::Message* msg, const gfx::Point& mousePos);
@@ -278,6 +272,7 @@ namespace app {
     void setHot(const Hit& hit);
     void showCel(layer_t layer, frame_t frame);
     void showCurrentCel();
+    void focusTagBand(int band);
     void cleanClk();
     gfx::Size getScrollableSize() const;
     gfx::Point getMaxScrollablePos() const;
@@ -293,7 +288,7 @@ namespace app {
     // The layer of the bottom (e.g. Background layer)
     layer_t firstLayer() const { return 0; }
     // The layer of the top.
-    layer_t lastLayer() const { return m_layers.size()-1; }
+    layer_t lastLayer() const { return m_rows.size()-1; }
 
     frame_t firstFrame() const { return frame_t(0); }
     frame_t lastFrame() const { return m_sprite->lastFrame(); }
@@ -313,6 +308,8 @@ namespace app {
     int layerBoxHeight() const;
     int frameBoxWidth() const;
     int outlineWidth() const;
+    int oneTagHeight() const;
+    int calcTagVisibleToFrame(FrameTag* frameTag) const;
 
     void updateCelOverlayBounds(const Hit& hit);
     void drawCelOverlay(ui::Graphics* g);
@@ -335,7 +332,15 @@ namespace app {
     Range m_startRange;
     Range m_dropRange;
     State m_state;
-    std::vector<LayerInfo> m_layers;
+
+    // Data used to display each row in the timeline
+    std::vector<Row> m_rows;
+
+    // Data used to display frame tags
+    int m_tagBands;
+    int m_tagFocusBand;
+    std::map<FrameTag*, int> m_tagBand;
+
     int m_separator_x;
     int m_separator_w;
     int m_origFrames;

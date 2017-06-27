@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -8,6 +8,7 @@
 #define APP_TOOLS_CONTROLLER_H_INCLUDED
 #pragma once
 
+#include "app/tools/trace_policy.h"
 #include "gfx/point.h"
 
 #include <string>
@@ -27,6 +28,9 @@ namespace app {
       virtual bool canSnapToGrid() { return true; }
       virtual bool isFreehand() { return false; }
       virtual bool isOnePoint() { return false; }
+      virtual bool isTwoPoints() { return false; }
+
+      virtual void prepareController(ToolLoop* loop) { }
 
       // Called when the user starts drawing and each time a new button is
       // pressed. The controller could be sure that this method is called
@@ -43,6 +47,17 @@ namespace app {
       // The input and output strokes are relative to sprite coordinates.
       virtual void getStrokeToInterwine(const Stroke& input, Stroke& output) = 0;
       virtual void getStatusBarText(const Stroke& stroke, std::string& text) = 0;
+
+      // Last point used by this controller, useful to save the last
+      // point of a freehand tool.
+      virtual gfx::Point getLastPoint() const { return gfx::Point(0, 0); }
+
+      // Special trace policy that can change in the middle of the
+      // ToolLoop. This is for LineFreehandController which uses a
+      // TracePolicy::Last for TwoPoints controller (Line-like tool)
+      // and then a TracePolicy::Accumulate for freehand (Pencil tool).
+      virtual bool handleTracePolicy() const { return false; }
+      virtual TracePolicy getTracePolicy() const { return TracePolicy::Accumulate; }
     };
 
   } // namespace tools

@@ -1,5 +1,5 @@
 // Aseprite Gfx Library
-// Copyright (C) 2001-2013 David Capello
+// Copyright (C) 2001-2017 David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -18,16 +18,12 @@ using namespace std;
 
 Hsv::Hsv(double hue, double saturation, double value)
   : m_hue(hue)
-  , m_saturation(saturation)
-  , m_value(value)
+  , m_saturation(MID(0.0, saturation, 1.0))
+  , m_value(MID(0.0, value, 1.0))
 {
   while (m_hue < 0.0)
     m_hue += 360.0;
-  m_hue = fmod(hue, 360.0);
-
-  assert(hue        >= 0.0 && hue        <= 360.0);
-  assert(saturation >= 0.0 && saturation <= 1.0);
-  assert(value      >= 0.0 && value      <= 1.0);
+  m_hue = std::fmod(m_hue, 360.0);
 }
 
 // Reference: http://en.wikipedia.org/wiki/HSL_and_HSV
@@ -58,7 +54,7 @@ Hsv::Hsv(const Rgb& rgb)
 
       while (hue_prime < 0.0)
         hue_prime += 6.0;
-      hue_prime = fmod(hue_prime, 6.0);
+      hue_prime = std::fmod(hue_prime, 6.0);
     }
     else if (M == rgb.green()) {
       hue_prime = ((b - r) / chroma) + 2.0;
@@ -77,17 +73,17 @@ Hsv::Hsv(const Rgb& rgb)
 
 int Hsv::hueInt() const
 {
-  return int(floor(m_hue + 0.5));
+  return int(std::floor(m_hue + 0.5));
 }
 
 int Hsv::saturationInt() const
 {
-  return int(floor(m_saturation*100.0 + 0.5));
+  return int(std::floor(m_saturation*100.0 + 0.5));
 }
 
 int Hsv::valueInt() const
 {
-  return int(floor(m_value*100.0 + 0.5));
+  return int(std::floor(m_value*100.0 + 0.5));
 }
 
 } // namespace gfx

@@ -22,6 +22,7 @@
 #include "she/surface.h"
 #include "she/system.h"
 #include "ui/manager.h"
+#include "ui/scale.h"
 #include "ui/theme.h"
 
 #include <cctype>
@@ -68,7 +69,9 @@ bool Graphics::intersectClipRect(const gfx::Rect& rc)
   return m_surface->intersectClipRect(gfx::Rect(rc).offset(m_dx, m_dy));
 }
 
-void Graphics::setDrawMode(DrawMode mode, int param)
+void Graphics::setDrawMode(DrawMode mode, int param,
+                           const gfx::Color a,
+                           const gfx::Color b)
 {
   switch (mode) {
     case DrawMode::Solid:
@@ -78,7 +81,7 @@ void Graphics::setDrawMode(DrawMode mode, int param)
       m_surface->setDrawMode(she::DrawMode::Xor);
       break;
     case DrawMode::Checked:
-      m_surface->setDrawMode(she::DrawMode::Checked, param);
+      m_surface->setDrawMode(she::DrawMode::Checked, param, a, b);
       break;
   }
 }
@@ -196,6 +199,17 @@ void Graphics::drawColoredRgbaSurface(she::Surface* surface, gfx::Color color, i
   she::SurfaceLock lockDst(m_surface);
   m_surface->drawColoredRgbaSurface(surface, color, gfx::ColorNone,
     gfx::Clip(m_dx+x, m_dy+y, 0, 0, surface->width(), surface->height()));
+}
+
+void Graphics::drawColoredRgbaSurface(she::Surface* surface, gfx::Color color,
+                                      int srcx, int srcy, int dstx, int dsty, int w, int h)
+{
+  dirty(gfx::Rect(m_dx+dstx, m_dy+dsty, w, h));
+
+  she::SurfaceLock lockSrc(surface);
+  she::SurfaceLock lockDst(m_surface);
+  m_surface->drawColoredRgbaSurface(surface, color, gfx::ColorNone,
+    gfx::Clip(m_dx+dstx, m_dy+dsty, srcx, srcy, w, h));
 }
 
 void Graphics::blit(she::Surface* srcSurface, int srcx, int srcy, int dstx, int dsty, int w, int h)

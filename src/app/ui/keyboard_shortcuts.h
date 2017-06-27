@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -11,7 +11,9 @@
 #include "app/commands/params.h"
 #include "base/convert_to.h"
 #include "base/disable_copying.h"
+#include "obs/signal.h"
 #include "ui/accelerator.h"
+
 #include <vector>
 
 class TiXmlElement;
@@ -71,6 +73,7 @@ namespace app {
     SquareAspect              = 0x00001000,
     DrawFromCenter            = 0x00002000,
     ScaleFromCenter           = 0x00004000,
+    AngleSnapFromLastPoint    = 0x00008000,
   };
 
   inline KeyAction operator&(KeyAction a, KeyAction b) {
@@ -163,6 +166,10 @@ namespace app {
     tools::Tool* getCurrentQuicktool(tools::Tool* currentTool);
     KeyAction getCurrentActionModifiers(KeyContext context);
 
+    // Generated when the tooltips are modified by the user.
+    // Useful to regenerate tooltips with shortcuts.
+    obs::signal<void()> UserChange;
+
   private:
     KeyboardShortcuts();
 
@@ -173,6 +180,22 @@ namespace app {
 
     DISABLE_COPYING(KeyboardShortcuts);
   };
+
+  std::string key_tooltip(const char* str, Key* key);
+
+  inline std::string key_tooltip(const char* str,
+                                 const char* commandName,
+                                 const Params& params = Params(),
+                                 KeyContext keyContext = KeyContext::Any) {
+    return key_tooltip(
+      str, KeyboardShortcuts::instance()->command(
+        commandName, params, keyContext));
+  }
+
+  inline std::string key_tooltip(const char* str, KeyAction keyAction) {
+    return key_tooltip(
+      str, KeyboardShortcuts::instance()->action(keyAction));
+  }
 
 } // namespace app
 

@@ -29,140 +29,79 @@ using namespace ui;
 
 ColorSpectrum::ColorSpectrum()
 {
-  setAlign(HORIZONTAL);
-  setBorder(gfx::Border(3*ui::guiscale()));
 }
 
-app::Color ColorSpectrum::getColorByPosition(const gfx::Point& pos)
+app::Color ColorSpectrum::getMainAreaColor(const int u, const int umax,
+                                           const int v, const int vmax)
 {
-  gfx::Rect rc = childrenBounds();
-  if (rc.isEmpty())
-    return app::Color::fromMask();
-
-  int vmid = (align() & HORIZONTAL ? rc.h/2 : rc.w/2);
-  vmid = MAX(1, vmid);
-
-  int u, v, umax;
-  if (align() & HORIZONTAL) {
-    u = pos.x - rc.x;
-    v = pos.y - rc.y;
-    umax = MAX(1, rc.w-1);
-  }
-  else {
-    u = pos.y - rc.y;
-    v = pos.x - rc.x;
-    umax = MAX(1, rc.h-1);
-  }
-
   double hue = 360.0 * u / umax;
-  double sat = (v < vmid ? 100.0 * v / vmid : 100.0);
-  double val = (v < vmid ? 100.0 : 100.0-(100.0 * (v-vmid) / vmid));
-
-  return app::Color::fromHsv(
+  double lit = 1.0 - (double(v)/double(vmax));
+  return app::Color::fromHsl(
     MID(0.0, hue, 360.0),
-    MID(0.0, sat, 100.0),
-    MID(0.0, val, 100.0));
+    m_color.getHslSaturation(),
+    MID(0.0, lit, 1.0),
+    m_color.getAlpha());
 }
 
-void ColorSpectrum::onPaint(ui::PaintEvent& ev)
+app::Color ColorSpectrum::getBottomBarColor(const int u, const int umax)
 {
-  ui::Graphics* g = ev.graphics();
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+  double sat = double(u) / double(umax);
+  return app::Color::fromHsl(
+    m_color.getHslHue(),
+    MID(0.0, sat, 1.0),
+    m_color.getHslLightness(),
+    m_color.getAlpha());
+}
 
-  theme->drawRect(g, clientBounds(),
-                  theme->parts.editorNormal().get(),
-                  false);       // Do not fill the center
-
-  gfx::Rect rc = clientChildrenBounds();
-  if (rc.isEmpty())
-    return;
-
-  int vmid = (align() & HORIZONTAL ? rc.h/2 : rc.w/2);
-  vmid = MAX(1, vmid);
+void ColorSpectrum::onPaintMainArea(ui::Graphics* g, const gfx::Rect& rc)
+{
+  double sat = m_color.getHslSaturation();
+  int umax = MAX(1, rc.w-1);
+  int vmax = MAX(1, rc.h-1);
 
   for (int y=0; y<rc.h; ++y) {
     for (int x=0; x<rc.w; ++x) {
-      int u, v, umax;
-      if (align() & HORIZONTAL) {
-        u = x;
-        v = y;
-        umax = MAX(1, rc.w-1);
-      }
-      else {
-        u = y;
-        v = x;
-        umax = MAX(1, rc.h-1);
-      }
-
-      double hue = 360.0 * u / umax;
-      double sat = (v < vmid ? 100.0 * v / vmid : 100.0);
-      double val = (v < vmid ? 100.0 : 100.0-(100.0 * (v-vmid) / vmid));
+      double hue = 360.0 * double(x) / double(umax);
+      double lit = 1.0 - double(y) / double(vmax);
 
       gfx::Color color = color_utils::color_for_ui(
-        app::Color::fromHsv(
+        app::Color::fromHsl(
           MID(0.0, hue, 360.0),
-          MID(0.0, sat, 100.0),
-          MID(0.0, val, 100.0)));
+          sat,
+          MID(0.0, lit, 1.0)));
 
       g->putPixel(color, rc.x+x, rc.y+y);
     }
   }
 
   if (m_color.getType() != app::Color::MaskType) {
-    double hue = m_color.getHue();
-    double sat = m_color.getSaturation();
-    double val = m_color.getValue();
-    double lit = (200.0 - sat) * val / 200.0;
+    double hue = m_color.getHslHue();
+    double lit = m_color.getHslLightness();
     gfx::Point pos(rc.x + int(hue * rc.w / 360.0),
-                   rc.y + rc.h - int(lit * rc.h / 100.0));
+                   rc.y + rc.h - int(lit * rc.h));
 
-    she::Surface* icon = theme->parts.colorWheelIndicator()->bitmap(0);
-    g->drawColoredRgbaSurface(
-      icon,
-      lit > 50.0 ? gfx::rgba(0, 0, 0): gfx::rgba(255, 255, 255),
-      pos.x-icon->width()/2,
-      pos.y-icon->height()/2);
+    paintColorIndicator(g, pos, lit < 0.5);
   }
 }
 
-bool ColorSpectrum::onProcessMessage(ui::Message* msg)
+void ColorSpectrum::onPaintBottomBar(ui::Graphics* g, const gfx::Rect& rc)
 {
-  switch (msg->type()) {
+  double hue = m_color.getHslHue();
+  double lit = m_color.getHslLightness();
 
-    case kMouseDownMessage:
-      captureMouse();
-      // Continue...
+  for (int x=0; x<rc.w; ++x) {
+    gfx::Color color = color_utils::color_for_ui(
+      app::Color::fromHsl(hue, double(x) / double(rc.w), lit));
 
-    case kMouseMoveMessage: {
-      MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
-
-      app::Color color = getColorByPosition(mouseMsg->position());
-      if (color != app::Color::fromMask()) {
-        StatusBar::instance()->showColor(0, "", color);
-        if (hasCapture())
-          ColorChange(color, mouseMsg->buttons());
-      }
-      break;
-    }
-
-    case kMouseUpMessage:
-      if (hasCapture()) {
-        releaseMouse();
-      }
-      return true;
-
-    case kSetCursorMessage: {
-      MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
-      if (childrenBounds().contains(mouseMsg->position())) {
-        ui::set_mouse_cursor(kEyedropperCursor);
-        return true;
-      }
-      break;
-    }
-
+    g->drawVLine(color, rc.x+x, rc.y, rc.h);
   }
 
-  return ColorSelector::onProcessMessage(msg);
+  if (m_color.getType() != app::Color::MaskType) {
+    double sat = m_color.getHslSaturation();
+    gfx::Point pos(rc.x + int(double(rc.w) * sat),
+                   rc.y + rc.h/2);
+    paintColorIndicator(g, pos, lit < 0.5);
+  }
 }
 
 } // namespace app

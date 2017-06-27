@@ -1,5 +1,5 @@
 // SHE library
-// Copyright (C) 2016  David Capello
+// Copyright (C) 2016-2017  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -28,19 +28,11 @@ public:
              int width, int height, int scale);
   ~SkiaWindow();
 
-  int scale() const;
-  void setScale(int scale);
   void setVisible(bool visible);
   void maximize();
   bool isMaximized() const;
   bool isMinimized() const;
-  gfx::Size clientSize() const;
-  gfx::Size restoredSize() const;
-  void captureMouse();
-  void releaseMouse();
-  void setMousePosition(const gfx::Point& position);
-  bool setNativeMouseCursor(NativeCursor cursor);
-  void updateWindow(const gfx::Rect& bounds);
+
   std::string getLayout() { return ""; }
   void setLayout(const std::string& layout) { }
 
@@ -49,10 +41,12 @@ public:
   }
 
 private:
-  void onExpose() override;
+  void queueEvent(Event& ev) override;
+  void paintGC(const gfx::Rect& rc) override;
+  void resizeDisplay(const gfx::Size& sz) override;
 
-  gfx::Size m_clientSize;
-  int m_scale;
+  EventQueue* m_queue;
+  SkiaDisplay* m_display;
 
   DISABLE_COPYING(SkiaWindow);
 };

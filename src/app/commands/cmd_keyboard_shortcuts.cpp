@@ -556,24 +556,34 @@ private:
   }
 
   void onImport() {
-    std::string filename = app::show_file_selector("Import Keyboard Shortcuts", "",
-      KEYBOARD_FILENAME_EXTENSION, FileSelectorType::Open);
-    if (filename.empty())
+    FileSelectorFiles filename;
+    if (!app::show_file_selector(
+          "Import Keyboard Shortcuts", "",
+          KEYBOARD_FILENAME_EXTENSION,
+          FileSelectorType::Open, filename))
       return;
 
-    app::KeyboardShortcuts::instance()->importFile(filename.c_str(), KeySource::UserDefined);
+    ASSERT(!filename.empty());
+
+    app::KeyboardShortcuts::instance()->importFile(
+      filename.front(), KeySource::UserDefined);
+
     fillAllLists();
     layout();
   }
 
   void onExport() {
-    std::string filename = app::show_file_selector(
-      "Export Keyboard Shortcuts", "",
-      KEYBOARD_FILENAME_EXTENSION, FileSelectorType::Save);
-    if (filename.empty())
+    FileSelectorFiles filename;
+
+    if (!app::show_file_selector(
+          "Export Keyboard Shortcuts", "",
+          KEYBOARD_FILENAME_EXTENSION,
+          FileSelectorType::Save, filename))
       return;
 
-    app::KeyboardShortcuts::instance()->exportFile(filename.c_str());
+    ASSERT(!filename.empty());
+
+    app::KeyboardShortcuts::instance()->exportFile(filename.front());
   }
 
   void onReset() {
@@ -668,6 +678,8 @@ void KeyboardShortcutsCommand::onExecute(Context* context)
   window.openWindowInForeground();
 
   if (window.closer() == window.ok()) {
+    KeyboardShortcuts::instance()->UserChange();
+
     // Save keyboard shortcuts in configuration file
     {
       ResourceFinder rf;

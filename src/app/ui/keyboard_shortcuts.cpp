@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -44,6 +44,7 @@ namespace {
     { "SubtractSelection"   , "Subtract Selection" , app::KeyAction::SubtractSelection },
     { "AutoSelectLayer"     , "Auto Select Layer"  , app::KeyAction::AutoSelectLayer },
     { "StraightLineFromLastPoint", "Straight Line from Last Point", app::KeyAction::StraightLineFromLastPoint },
+    { "AngleSnapFromLastPoint", "Angle Snap from Last Point", app::KeyAction::AngleSnapFromLastPoint },
     { "MoveOrigin"          , "Move Origin"      , app::KeyAction::MoveOrigin },
     { "SquareAspect"        , "Square Aspect"      , app::KeyAction::SquareAspect },
     { "DrawFromCenter"      , "Draw From Center"   , app::KeyAction::DrawFromCenter },
@@ -158,6 +159,7 @@ Key::Key(KeyAction action)
       m_keycontext = KeyContext::MoveTool;
       break;
     case KeyAction::StraightLineFromLastPoint:
+    case KeyAction::AngleSnapFromLastPoint:
       m_keycontext = KeyContext::FreehandTool;
       break;
     case KeyAction::MoveOrigin:
@@ -716,6 +718,19 @@ KeyAction KeyboardShortcuts::getCurrentActionModifiers(KeyContext context)
   }
 
   return flags;
+}
+
+std::string key_tooltip(const char* str, app::Key* key)
+{
+  std::string res;
+  if (str)
+    res += str;
+  if (key && !key->accels().empty()) {
+    res += " (";
+    res += key->accels().front().toString();
+    res += ")";
+  }
+  return res;
 }
 
 } // namespace app

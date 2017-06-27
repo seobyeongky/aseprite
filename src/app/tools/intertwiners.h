@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2015  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,6 +13,22 @@ public:
   void joinStroke(ToolLoop* loop, const Stroke& stroke) override {
     for (int c=0; c<stroke.size(); ++c)
       doPointshapePoint(stroke[c].x, stroke[c].y, loop);
+  }
+
+  void fillStroke(ToolLoop* loop, const Stroke& stroke) override {
+    joinStroke(loop, stroke);
+  }
+};
+
+class IntertwineFirstPoint : public Intertwine {
+public:
+  // Snap angle because the angle between the first point and the last
+  // point might be useful for the ink (e.g. the gradient ink)
+  bool snapByAngle() override { return true; }
+
+  void joinStroke(ToolLoop* loop, const Stroke& stroke) override {
+    if (!stroke.empty())
+      doPointshapePoint(stroke[0].x, stroke[0].y, loop);
   }
 
   void fillStroke(ToolLoop* loop, const Stroke& stroke) override {
@@ -218,11 +234,23 @@ class IntertwineAsPixelPerfect : public Intertwine {
   Stroke m_pts;
 
 public:
+  // Useful for Shift+Ctrl+pencil to draw straight lines and snap
+  // angle when "pixel perfect" is selected.
+  bool snapByAngle() override { return true; }
+
   void prepareIntertwine() override {
     m_pts.reset();
   }
 
   void joinStroke(ToolLoop* loop, const Stroke& stroke) override {
+    // Required for LineFreehand controller in the first stage, when
+    // we are drawing the line and the trace policy is "Last". Each
+    // new joinStroke() is like a fresh start.  Without this fix, the
+    // first stage on LineFreehand will draw a "star" like pattern
+    // with lines from the first point to the last point.
+    if (loop->getTracePolicy() == TracePolicy::Last)
+      m_pts.reset();
+
     if (stroke.size() == 0)
       return;
     else if (m_pts.empty() && stroke.size() == 1) {

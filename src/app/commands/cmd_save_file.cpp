@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -150,6 +150,7 @@ void SaveFileBaseCommand::onLoadParams(const Params& params)
   m_filename = params.get("filename");
   m_filenameFormat = params.get("filename-format");
   m_frameTag = params.get("frame-tag");
+  m_slice = params.get("slice");
 
   if (params.has_param("from-frame") ||
       params.has_param("to-frame")) {
@@ -192,15 +193,14 @@ bool SaveFileBaseCommand::saveAsDialog(Context* context,
     std::string exts = get_writable_extensions();
     filename = document->filename();
 
-    std::string newfilename = app::show_file_selector(
-      dlgTitle, filename, exts,
-      FileSelectorType::Save,
-      delegate);
-
-    if (newfilename.empty())
+    FileSelectorFiles newfilename;
+    if (!app::show_file_selector(
+          dlgTitle, filename, exts,
+          FileSelectorType::Save, newfilename,
+          delegate))
       return false;
 
-    filename = newfilename;
+    filename = newfilename.front();
     if (delegate &&
         delegate->hasResizeCombobox()) {
       xscale = yscale = delegate->getResizeScale();
@@ -301,7 +301,7 @@ void SaveFileBaseCommand::saveDocumentInBackground(const Context* context,
   base::UniquePtr<FileOp> fop(
     FileOp::createSaveDocumentOperation(
       context,
-      FileOpROI(document, m_frameTag,
+      FileOpROI(document, m_slice, m_frameTag,
                 m_selFrames, m_adjustFramesByFrameTag),
       document->filename(),
       m_filenameFormat));

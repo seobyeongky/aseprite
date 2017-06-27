@@ -32,7 +32,9 @@
 #include "app/ui/brush_popup.h"
 #include "app/ui/button_set.h"
 #include "app/ui/color_button.h"
+#include "app/ui/dithering_selector.h"
 #include "app/ui/icon_button.h"
+#include "app/ui/keyboard_shortcuts.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui_context.h"
 #include "base/bind.h"
@@ -44,6 +46,7 @@
 #include "doc/palette.h"
 #include "doc/remap.h"
 #include "obs/connection.h"
+#include "render/dithering.h"
 #include "she/surface.h"
 #include "she/system.h"
 #include "ui/button.h"
@@ -926,7 +929,7 @@ class ContextBar::TransparentColorField : public HBox {
 public:
   TransparentColorField(ContextBar* owner)
     : m_icon(1)
-    , m_maskColor(app::Color::fromMask(), IMAGE_RGB, false)
+    , m_maskColor(app::Color::fromMask(), IMAGE_RGB, ColorButtonOptions())
     , m_owner(owner) {
     SkinTheme* theme = SkinTheme::instance();
 
@@ -1189,10 +1192,14 @@ public:
   }
 
   void setupTooltips(TooltipManager* tooltipManager) {
-    // TODO use real shortcuts in tooltips
-    tooltipManager->addTooltipFor(at(0), "Replace selection", BOTTOM);
-    tooltipManager->addTooltipFor(at(1), "Add to selection\n(Shift)", BOTTOM);
-    tooltipManager->addTooltipFor(at(2), "Subtract from selection\n(Shift+Alt)", BOTTOM);
+    tooltipManager->addTooltipFor(
+      at(0), "Replace selection", BOTTOM);
+
+    tooltipManager->addTooltipFor(
+      at(1), key_tooltip("Add to selection", KeyAction::AddSelection), BOTTOM);
+
+    tooltipManager->addTooltipFor(
+      at(2), key_tooltip("Subtract from selection", KeyAction::SubtractSelection), BOTTOM);
   }
 
   void setSelectionMode(gen::SelectionMode mode) {
@@ -1221,8 +1228,9 @@ public:
   }
 
   void setupTooltips(TooltipManager* tooltipManager) {
-    tooltipManager->addTooltipFor(at(0), "Drop pixels here", BOTTOM);
-    tooltipManager->addTooltipFor(at(1), "Cancel drag and drop", BOTTOM);
+    // TODO Enter and Esc should be configurable keys
+    tooltipManager->addTooltipFor(at(0), "Drop pixels here (Enter)", BOTTOM);
+    tooltipManager->addTooltipFor(at(1), "Cancel drag and drop (Esc)", BOTTOM);
   }
 
   obs::signal<void(ContextBarObserver::DropAction)> DropPixels;
@@ -1247,8 +1255,10 @@ public:
     m_channel.addItem("Alpha");
     m_channel.addItem("RGB+Alpha");
     m_channel.addItem("RGB");
-    m_channel.addItem("HSB+Alpha");
-    m_channel.addItem("HSB");
+    m_channel.addItem("HSV+Alpha");
+    m_channel.addItem("HSV");
+    m_channel.addItem("HSL+Alpha");
+    m_channel.addItem("HSL");
     m_channel.addItem("Gray+Alpha");
     m_channel.addItem("Gray");
     m_channel.addItem("Best fit Index");
@@ -1305,17 +1315,17 @@ protected:
 
 class ContextBar::SymmetryField : public ButtonSet {
 public:
-  SymmetryField() : ButtonSet(3) {
+  SymmetryField() : ButtonSet(2) {
+    setMultipleSelection(true);
+
     SkinTheme* theme = SkinTheme::instance();
-    addItem(theme->parts.noSymmetry());
     addItem(theme->parts.horizontalSymmetry());
     addItem(theme->parts.verticalSymmetry());
   }
 
   void setupTooltips(TooltipManager* tooltipManager) {
-    tooltipManager->addTooltipFor(at(0), "Without Symmetry", BOTTOM);
-    tooltipManager->addTooltipFor(at(1), "Horizontal Symmetry", BOTTOM);
-    tooltipManager->addTooltipFor(at(2), "Vertical Symmetry", BOTTOM);
+    tooltipManager->addTooltipFor(at(0), "Horizontal Symmetry", BOTTOM);
+    tooltipManager->addTooltipFor(at(1), "Vertical Symmetry", BOTTOM);
   }
 
   void updateWithCurrentDocument() {
@@ -1325,7 +1335,8 @@ public:
 
     DocumentPreferences& docPref = Preferences::instance().document(doc);
 
-    setSelectedItem((int)docPref.symmetry.mode());
+    at(0)->setSelected(int(docPref.symmetry.mode()) & int(app::gen::SymmetryMode::HORIZONTAL) ? true: false);
+    at(1)->setSelected(int(docPref.symmetry.mode()) & int(app::gen::SymmetryMode::VERTICAL) ? true: false);
   }
 
 private:
@@ -1339,7 +1350,10 @@ private:
     DocumentPreferences& docPref =
       Preferences::instance().document(doc);
 
-    docPref.symmetry.mode((app::gen::SymmetryMode)selectedItem());
+    int mode = 0;
+    if (at(0)->isSelected()) mode |= int(app::gen::SymmetryMode::HORIZONTAL);
+    if (at(1)->isSelected()) mode |= int(app::gen::SymmetryMode::VERTICAL);
+    docPref.symmetry.mode(app::gen::SymmetryMode(mode));
 
     // Redraw symmetry rules
     doc->notifyGeneralUpdate();
@@ -1374,6 +1388,8 @@ ContextBar::ContextBar()
   addChild(m_tolerance = new ToleranceField());
   addChild(m_contiguous = new ContiguousField());
   addChild(m_paintBucketSettings = new PaintBucketSettingsField());
+  addChild(m_ditheringSelector = new DitheringSelector(DitheringSelector::SelectMatrix));
+  m_ditheringSelector->setUseCustomWidget(false); // Disable custom widget because the context bar is too small
 
   addChild(m_inkType = new InkTypeField(this));
   addChild(m_inkOpacityLabel = new Label("Opacity:"));
@@ -1413,25 +1429,7 @@ ContextBar::ContextBar()
   TooltipManager* tooltipManager = new TooltipManager();
   addChild(tooltipManager);
 
-  tooltipManager->addTooltipFor(m_brushType, "Brush Type", BOTTOM);
-  tooltipManager->addTooltipFor(m_brushSize, "Brush Size (in pixels)", BOTTOM);
-  tooltipManager->addTooltipFor(m_brushAngle, "Brush Angle (in degrees)", BOTTOM);
-  tooltipManager->addTooltipFor(m_inkType, "Ink", BOTTOM);
-  tooltipManager->addTooltipFor(m_inkOpacity, "Opacity (paint intensity)", BOTTOM);
-  tooltipManager->addTooltipFor(m_inkShades, "Shades", BOTTOM);
-  tooltipManager->addTooltipFor(m_sprayWidth, "Spray Width", BOTTOM);
-  tooltipManager->addTooltipFor(m_spraySpeed, "Spray Speed", BOTTOM);
-  tooltipManager->addTooltipFor(m_pivot, "Rotation Pivot", BOTTOM);
-  tooltipManager->addTooltipFor(m_transparentColor, "Transparent Color", BOTTOM);
-  tooltipManager->addTooltipFor(m_rotAlgo, "Rotation Algorithm", BOTTOM);
-  tooltipManager->addTooltipFor(m_freehandAlgo, "Freehand trace algorithm", BOTTOM);
-  tooltipManager->addTooltipFor(m_paintBucketSettings, "Extra paint bucket options", BOTTOM);
-
-  m_brushType->setupTooltips(tooltipManager);
-  m_selectionMode->setupTooltips(tooltipManager);
-  m_dropPixels->setupTooltips(tooltipManager);
-  m_freehandAlgo->setupTooltips(tooltipManager);
-  m_symmetry->setupTooltips(tooltipManager);
+  setupTooltips(tooltipManager);
 
   App::instance()->activeToolManager()->add_observer(this);
 
@@ -1442,6 +1440,9 @@ ContextBar::ContextBar()
     base::Bind<void>(&ContextBar::onFgOrBgColorChange, this, doc::Brush::ImageColor::MainColor));
   pref.colorBar.bgColor.AfterChange.connect(
     base::Bind<void>(&ContextBar::onFgOrBgColorChange, this, doc::Brush::ImageColor::BackgroundColor));
+
+  KeyboardShortcuts::instance()->UserChange.connect(
+    base::Bind<void>(&ContextBar::setupTooltips, this, tooltipManager));
 
   m_dropPixels->DropPixels.connect(&ContextBar::onDropPixels, this);
 
@@ -1624,64 +1625,68 @@ void ContextBar::updateForTool(tools::Tool* tool)
     m_spraySpeed->setValue(toolPref->spray.speed());
   }
 
-  bool updateShade = (!m_inkShades->isVisible() && hasInkShades);
+  const bool updateShade = (!m_inkShades->isVisible() && hasInkShades);
 
   m_eyedropperField->updateFromPreferences(preferences.eyedropper);
   m_autoSelectLayer->setSelected(preferences.editor.autoSelectLayer());
 
   // True if we have an image as brush
-  bool hasImageBrush = (activeBrush()->type() == kImageBrushType);
+  const bool hasImageBrush = (activeBrush()->type() == kImageBrushType);
 
   // True if the brush type supports angle.
-  bool hasBrushWithAngle =
+  const bool hasBrushWithAngle =
     (activeBrush()->size() > 1) &&
     (activeBrush()->type() == kSquareBrushType ||
      activeBrush()->type() == kLineBrushType);
 
   // True if the current tool is eyedropper.
-  bool needZoomButtons = tool &&
+  const bool needZoomButtons = tool &&
     (tool->getInk(0)->isZoom() ||
      tool->getInk(1)->isZoom() ||
      tool->getInk(0)->isScrollMovement() ||
      tool->getInk(1)->isScrollMovement());
 
   // True if the current tool is eyedropper.
-  bool isEyedropper = tool &&
+  const bool isEyedropper = tool &&
     (tool->getInk(0)->isEyedropper() ||
      tool->getInk(1)->isEyedropper());
 
   // True if the current tool is move tool.
-  bool isMove = tool &&
+  const bool isMove = tool &&
     (tool->getInk(0)->isCelMovement() ||
      tool->getInk(1)->isCelMovement());
 
   // True if the current tool is floodfill
-  bool isFloodfill = tool &&
+  const bool isFloodfill = tool &&
     (tool->getPointShape(0)->isFloodFill() ||
      tool->getPointShape(1)->isFloodFill());
 
   // True if the current tool needs tolerance options
-  bool hasTolerance = tool &&
+  const bool hasTolerance = tool &&
     (tool->getPointShape(0)->isFloodFill() ||
      tool->getPointShape(1)->isFloodFill());
 
   // True if the current tool needs spray options
-  bool hasSprayOptions = tool &&
+  const bool hasSprayOptions = tool &&
     (tool->getPointShape(0)->isSpray() ||
      tool->getPointShape(1)->isSpray());
 
-  bool hasSelectOptions = tool &&
+  const bool hasSelectOptions = tool &&
     (tool->getInk(0)->isSelection() ||
      tool->getInk(1)->isSelection());
 
-  bool isFreehand = tool &&
+  const bool isFreehand = tool &&
     (tool->getController(0)->isFreehand() ||
      tool->getController(1)->isFreehand());
 
-  bool showOpacity =
+  const bool showOpacity =
     (supportOpacity) &&
     ((isPaint && (hasInkWithOpacity || hasImageBrush)) ||
      (isEffect));
+
+  const bool withDithering = tool &&
+    (tool->getInk(0)->withDitheringOptions() ||
+     tool->getInk(1)->withDitheringOptions());
 
   // Show/Hide fields
   m_zoomButtons->setVisible(needZoomButtons);
@@ -1702,6 +1707,7 @@ void ContextBar::updateForTool(tools::Tool* tool)
   m_paintBucketSettings->setVisible(hasTolerance);
   m_sprayBox->setVisible(hasSprayOptions);
   m_selectionOptionsBox->setVisible(hasSelectOptions);
+  m_ditheringSelector->setVisible(withDithering);
   m_selectionMode->setVisible(true);
   m_pivot->setVisible(true);
   m_dropPixels->setVisible(false);
@@ -1949,6 +1955,59 @@ void ContextBar::reverseShadeColors()
 void ContextBar::setInkType(tools::InkType type)
 {
   m_inkType->setInkType(type);
+}
+
+render::DitheringMatrix ContextBar::ditheringMatrix()
+{
+  return m_ditheringSelector->ditheringMatrix();
+}
+
+render::DitheringAlgorithmBase* ContextBar::ditheringAlgorithm()
+{
+  static base::UniquePtr<render::DitheringAlgorithmBase> s_dither;
+
+  switch (m_ditheringSelector->ditheringAlgorithm()) {
+    case render::DitheringAlgorithm::None:
+      s_dither.reset(nullptr);
+      break;
+    case render::DitheringAlgorithm::Ordered:
+      s_dither.reset(new render::OrderedDither2(-1));
+      break;
+    case render::DitheringAlgorithm::Old:
+      s_dither.reset(new render::OrderedDither(-1));
+      break;
+  }
+
+  return s_dither.get();
+}
+
+void ContextBar::setupTooltips(TooltipManager* tooltipManager)
+{
+  tooltipManager->addTooltipFor(m_brushType, "Brush Type", BOTTOM);
+  tooltipManager->addTooltipFor(m_brushSize, "Brush Size (in pixels)", BOTTOM);
+  tooltipManager->addTooltipFor(m_brushAngle, "Brush Angle (in degrees)", BOTTOM);
+  tooltipManager->addTooltipFor(m_inkType, "Ink", BOTTOM);
+  tooltipManager->addTooltipFor(m_inkOpacity, "Opacity (paint intensity)", BOTTOM);
+  tooltipManager->addTooltipFor(m_inkShades, "Shades", BOTTOM);
+  tooltipManager->addTooltipFor(m_sprayWidth, "Spray Width", BOTTOM);
+  tooltipManager->addTooltipFor(m_spraySpeed, "Spray Speed", BOTTOM);
+  tooltipManager->addTooltipFor(m_pivot, "Rotation Pivot", BOTTOM);
+  tooltipManager->addTooltipFor(m_transparentColor, "Transparent Color", BOTTOM);
+  tooltipManager->addTooltipFor(m_rotAlgo, "Rotation Algorithm", BOTTOM);
+  tooltipManager->addTooltipFor(m_freehandAlgo,
+                                key_tooltip("Freehand trace algorithm",
+                                            CommandId::PixelPerfectMode), BOTTOM);
+  tooltipManager->addTooltipFor(m_contiguous,
+                                key_tooltip("Fill contiguous areas color",
+                                            CommandId::ContiguousFill), BOTTOM);
+  tooltipManager->addTooltipFor(m_paintBucketSettings,
+                                "Extra paint bucket options", BOTTOM);
+
+  m_brushType->setupTooltips(tooltipManager);
+  m_selectionMode->setupTooltips(tooltipManager);
+  m_dropPixels->setupTooltips(tooltipManager);
+  m_freehandAlgo->setupTooltips(tooltipManager);
+  m_symmetry->setupTooltips(tooltipManager);
 }
 
 } // namespace app

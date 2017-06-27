@@ -1,10 +1,11 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
 
 #include "app/modules/palettes.h"
+#include "base/unique_ptr.h"
 #include "doc/blend_funcs.h"
 #include "doc/image_impl.h"
 #include "doc/layer.h"
@@ -15,6 +16,8 @@
 #include "filters/neighboring_pixels.h"
 #include "gfx/hsv.h"
 #include "gfx/rgb.h"
+#include "render/dithering.h"
+#include "render/gradient.h"
 
 namespace app {
 namespace tools {
@@ -28,10 +31,17 @@ namespace {
 // Ink Processing
 //////////////////////////////////////////////////////////////////////
 
-template<typename Derived>
-class InkProcessing {
+class BaseInkProcessing {
 public:
-  void operator()(int x1, int y, int x2, ToolLoop* loop) {
+  virtual ~BaseInkProcessing() { }
+  virtual void hline(int x1, int y, int x2, ToolLoop* loop) = 0;
+  virtual void updateInk(ToolLoop* loop, Strokes& strokes) { }
+};
+
+template<typename Derived>
+class InkProcessing : public BaseInkProcessing {
+public:
+  void hline(int x1, int y, int x2, ToolLoop* loop) override {
     int x;
 
     // Use mask
@@ -180,12 +190,13 @@ public:
 
   void processPixel(int x, int y) {
     color_t c = *m_srcAddress;
-    if (c == m_maskIndex)
+    if (int(c) == m_maskIndex)
       c = m_palette->getEntry(c) & rgba_rgb_mask;  // Alpha = 0
     else
       c = m_palette->getEntry(c);
 
     color_t result = rgba_blender_normal(c, m_color, m_opacity);
+    // TODO should we use m_rgbmap->mapColor instead?
     *m_dstAddress = m_palette->findBestfit(
       rgba_getr(result),
       rgba_getg(result),
@@ -245,7 +256,7 @@ public:
 
   void processPixel(int x, int y) {
     color_t c = *m_srcAddress;
-    if (c == m_maskIndex)
+    if (int(c) == m_maskIndex)
       c = m_palette->getEntry(c) & rgba_rgb_mask;  // Alpha = 0
     else
       c = m_palette->getEntry(c);
@@ -304,14 +315,14 @@ public:
     m_rgbmap(loop->getRgbMap()),
     m_opacity(loop->getOpacity()),
     m_maskIndex(loop->getLayer()->isBackground() ? -1: loop->sprite()->transparentColor()),
-    m_color(loop->getPrimaryColor() == m_maskIndex ?
+    m_color(int(loop->getPrimaryColor()) == m_maskIndex ?
             (m_palette->getEntry(loop->getPrimaryColor()) & rgba_rgb_mask):
             (m_palette->getEntry(loop->getPrimaryColor()))) {
   }
 
   void processPixel(int x, int y) {
     color_t c = *m_srcAddress;
-    if (c == m_maskIndex)
+    if (int(c) == m_maskIndex)
       c = m_palette->getEntry(c) & rgba_rgb_mask;  // Alpha = 0
     else
       c = m_palette->getEntry(c);
@@ -859,6 +870,159 @@ private:
 };
 
 //////////////////////////////////////////////////////////////////////
+// Gradient Ink
+//////////////////////////////////////////////////////////////////////
+
+static ImageBufferPtr tmpGradientBuffer; // TODO non-thread safe
+
+class GradientRenderer {
+public:
+  GradientRenderer(ToolLoop* loop) {
+    if (!tmpGradientBuffer)
+      tmpGradientBuffer.reset(new ImageBuffer(1));
+
+    m_tmpImage.reset(
+      Image::create(IMAGE_RGB,
+                    loop->getDstImage()->width(),
+                    loop->getDstImage()->height(),
+                    tmpGradientBuffer));
+    m_tmpImage->clear(0);
+  }
+
+  void renderRgbaGradient(ToolLoop* loop, Strokes& strokes,
+                          // RGBA colors
+                          color_t c0, color_t c1) {
+    if (strokes.empty() || strokes[0].size() < 2) {
+      m_tmpImage->clear(0);
+      return;
+    }
+
+    render::render_rgba_linear_gradient(
+      m_tmpImage.get(),
+      strokes[0].firstPoint(),
+      strokes[0].lastPoint(),
+      c0, c1,
+      loop->getDitheringMatrix());
+  }
+
+protected:
+  ImageRef m_tmpImage;
+  RgbTraits::address_t m_tmpAddress;
+};
+
+template<typename ImageTraits>
+class GradientInkProcessing : public GradientRenderer,
+                              public DoubleInkProcessing<GradientInkProcessing<ImageTraits>, ImageTraits> {
+public:
+  typedef DoubleInkProcessing<GradientInkProcessing<ImageTraits>, ImageTraits> base;
+
+  GradientInkProcessing(ToolLoop* loop)
+    : GradientRenderer(loop)
+    , m_opacity(loop->getOpacity())
+    , m_palette(get_current_palette())
+    , m_rgbmap(loop->getRgbMap())
+    , m_maskIndex(loop->getLayer()->isBackground() ? -1: loop->sprite()->transparentColor())
+    , m_matrix(loop->getDitheringMatrix())
+  {
+  }
+
+  void hline(int x1, int y, int x2, ToolLoop* loop) override {
+    m_tmpAddress = (RgbTraits::address_t)m_tmpImage->getPixelAddress(x1, y);
+    base::hline(x1, y, x2, loop);
+  }
+
+  void updateInk(ToolLoop* loop, Strokes& strokes) override {
+    // Do nothing
+  }
+
+  void processPixel(int x, int y) {
+    // Do nothing (it's specialized for each case)
+  }
+
+private:
+  const int m_opacity;
+  const Palette* m_palette;
+  const RgbMap* m_rgbmap;
+  const int m_maskIndex;
+  const render::DitheringMatrix m_matrix;
+};
+
+template<>
+void GradientInkProcessing<RgbTraits>::updateInk(ToolLoop* loop, Strokes& strokes)
+{
+  color_t c0 = loop->getPrimaryColor();
+  color_t c1 = loop->getSecondaryColor();
+
+  renderRgbaGradient(loop, strokes, c0, c1);
+}
+
+template<>
+void GradientInkProcessing<RgbTraits>::processPixel(int x, int y)
+{
+  *m_dstAddress = rgba_blender_normal(*m_srcAddress,
+                                      *m_tmpAddress,
+                                      m_opacity);
+  ++m_tmpAddress;
+}
+
+template<>
+void GradientInkProcessing<GrayscaleTraits>::updateInk(ToolLoop* loop, Strokes& strokes)
+{
+  color_t c0 = loop->getPrimaryColor();
+  color_t c1 = loop->getSecondaryColor();
+  int v0 = int(doc::graya_getv(c0));
+  int a0 = int(doc::graya_geta(c0));
+  int v1 = int(doc::graya_getv(c1));
+  int a1 = int(doc::graya_geta(c1));
+  c0 = doc::rgba(v0, v0, v0, a0);
+  c1 = doc::rgba(v1, v1, v1, a1);
+
+  renderRgbaGradient(loop, strokes, c0, c1);
+}
+
+template<>
+void GradientInkProcessing<GrayscaleTraits>::processPixel(int x, int y)
+{
+  doc::color_t c = *m_tmpAddress;
+  int a = doc::rgba_geta(c);
+  int v = doc::rgba_getr(c);
+
+  *m_dstAddress = graya_blender_normal(*m_srcAddress,
+                                       doc::graya(v, a),
+                                       m_opacity);
+  ++m_tmpAddress;
+}
+
+template<>
+void GradientInkProcessing<IndexedTraits>::updateInk(ToolLoop* loop, Strokes& strokes)
+{
+  color_t c0 = m_palette->getEntry(loop->getPrimaryColor());
+  color_t c1 = m_palette->getEntry(loop->getSecondaryColor());
+
+  renderRgbaGradient(loop, strokes, c0, c1);
+}
+
+template<>
+void GradientInkProcessing<IndexedTraits>::processPixel(int x, int y)
+{
+  doc::color_t c = *m_tmpAddress;
+  doc::color_t c0 = *m_srcAddress;
+  if (int(c0) == m_maskIndex)
+    c0 = m_palette->getEntry(c0) & rgba_rgb_mask;  // Alpha = 0
+  else
+    c0 = m_palette->getEntry(c0);
+  c = rgba_blender_normal(c0, c, m_opacity);
+
+  *m_dstAddress = m_rgbmap->mapColor(rgba_getr(c),
+                                     rgba_getg(c),
+                                     rgba_getb(c),
+                                     rgba_geta(c));
+
+  ++m_tmpAddress;
+}
+
+
+//////////////////////////////////////////////////////////////////////
 // Xor Ink
 //////////////////////////////////////////////////////////////////////
 
@@ -1066,22 +1230,15 @@ void BrushInkProcessing<IndexedTraits>::processPixel(int x, int y) {
 
 //////////////////////////////////////////////////////////////////////
 
-template<template<typename> class InkProcessing,
-         typename ImageTraits>
-void ink_proc(int x1, int y, int x2, void* data)
-{
-  ToolLoop* loop = reinterpret_cast<ToolLoop*>(data);
-  InkProcessing<ImageTraits> ink(loop);
-  ink(x1, y, x2, loop);
-}
+typedef base::UniquePtr<BaseInkProcessing> InkProcessingPtr;
 
-template<template<typename> class InkProcessing>
-AlgoHLine get_ink_proc(PixelFormat pixelFormat)
+template<template<typename> class T>
+BaseInkProcessing* get_ink_proc(ToolLoop* loop)
 {
-  switch (pixelFormat) {
-    case IMAGE_RGB:       return ink_proc<InkProcessing, RgbTraits>;
-    case IMAGE_GRAYSCALE: return ink_proc<InkProcessing, GrayscaleTraits>;
-    case IMAGE_INDEXED:   return ink_proc<InkProcessing, IndexedTraits>;
+  switch (loop->sprite()->pixelFormat()) {
+    case IMAGE_RGB:       return new T<RgbTraits>(loop);
+    case IMAGE_GRAYSCALE: return new T<GrayscaleTraits>(loop);
+    case IMAGE_INDEXED:   return new T<IndexedTraits>(loop);
   }
   ASSERT(false);
   return nullptr;

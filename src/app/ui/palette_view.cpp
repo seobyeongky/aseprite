@@ -392,7 +392,7 @@ bool PaletteView::onProcessMessage(Message* msg)
         if (static_cast<MouseMessage*>(msg)->preciseWheel())
           scroll += delta;
         else
-          scroll += delta * 3 * m_boxsize;
+          scroll += delta * 3 * int(m_boxsize);
 
         view->setViewScroll(scroll);
       }
@@ -486,7 +486,7 @@ void PaletteView::onPaint(ui::PaintEvent& ev)
         if (fgIndex == i) {
           gfx::Color neg = color_utils::blackandwhite_neg(gfxColor);
           for (int i=0; i<int(m_boxsize/2); ++i)
-            g->drawHLine(neg, box.x, box.y+i, m_boxsize/2-i);
+            g->drawHLine(neg, box.x, box.y+i, int(m_boxsize/2)-i);
         }
 
         if (bgIndex == i) {
@@ -577,7 +577,9 @@ void PaletteView::onPaint(ui::PaintEvent& ev)
 
         IntersectClip clip(g, clipR);
         if (clip) {
-          CheckedDrawMode checked(g, getMarchingAntsOffset());
+          CheckedDrawMode checked(g, getMarchingAntsOffset(),
+                                  gfx::rgba(0, 0, 0, 255),
+                                  gfx::rgba(255, 255, 255, 255));
           g->drawRect(gfx::rgba(0, 0, 0), box);
         }
       }
@@ -949,6 +951,7 @@ int PaletteView::findExactIndex(const app::Color& color) const
 
     case Color::RgbType:
     case Color::HsvType:
+    case Color::HslType:
     case Color::GrayType:
       return currentPalette()->findExactMatch(
         color.getRed(), color.getGreen(), color.getBlue(), color.getAlpha(), -1);
@@ -971,7 +974,8 @@ void PaletteView::setNewPalette(doc::Palette* oldPalette,
 
   if (m_delegate) {
     m_delegate->onPaletteViewModification(newPalette, mod);
-    m_delegate->onPaletteViewIndexChange(m_currentEntry, ui::kButtonLeft);
+    if (m_currentEntry >= 0)
+      m_delegate->onPaletteViewIndexChange(m_currentEntry, ui::kButtonLeft);
   }
 
   set_current_palette(newPalette, false);

@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,10 +10,8 @@
 
 #include "doc/algorithm/flip_type.h"
 #include "doc/color.h"
-#include "doc/dithering_method.h"
 #include "doc/frame.h"
 #include "doc/image_ref.h"
-#include "doc/pixel_format.h"
 #include "gfx/rect.h"
 
 namespace doc {
@@ -46,7 +44,6 @@ namespace app {
     void setSpriteTransparentColor(Sprite* sprite, color_t maskColor);
     void cropSprite(Sprite* sprite, const gfx::Rect& bounds);
     void trimSprite(Sprite* sprite);
-    void setPixelFormat(Sprite* sprite, PixelFormat newFormat, DitheringMethod dithering);
 
     // Frames API
     void addFrame(Sprite* sprite, frame_t newFrame);
@@ -88,7 +85,6 @@ namespace app {
     void restackLayerBefore(Layer* layer, LayerGroup* parent, Layer* beforeThis);
     void backgroundFromLayer(Layer* layer);
     void layerFromBackground(Layer* layer);
-    void flattenLayers(Sprite* sprite);
     Layer* duplicateLayerAfter(Layer* sourceLayer, LayerGroup* parent, Layer* afterLayer);
     Layer* duplicateLayerBefore(Layer* sourceLayer, LayerGroup* parent, Layer* beforeLayer);
 

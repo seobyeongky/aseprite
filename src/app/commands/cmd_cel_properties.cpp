@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -18,7 +18,7 @@
 #include "app/document_range.h"
 #include "app/modules/gui.h"
 #include "app/transaction.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "app/ui/user_data_popup.h"
 #include "app/ui_context.h"
 #include "base/bind.h"
@@ -160,8 +160,8 @@ private:
 
     m_timer.stop();
 
-    int newOpacity = opacityValue();
-    int count = countCels();
+    const int newOpacity = opacityValue();
+    const int count = countCels();
 
     if ((count > 1) ||
         (count == 1 && m_cel && (newOpacity != m_cel->opacity() ||

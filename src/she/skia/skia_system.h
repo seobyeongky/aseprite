@@ -1,5 +1,5 @@
 // SHE library
-// Copyright (C) 2012-2016  David Capello
+// Copyright (C) 2012-2017  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -25,7 +25,8 @@
   #define SkiaSystemBase OSXSystem
 #else
   #include "she/x11/event_queue.h"
-  #define SkiaSystemBase CommonSystem
+  #include "she/x11/system.h"
+  #define SkiaSystemBase X11System
 #endif
 
 #include "SkGraphics.h"
@@ -69,10 +70,8 @@ public:
     return Capabilities(
       int(Capabilities::MultipleDisplays) |
       int(Capabilities::CanResizeDisplay) |
-      int(Capabilities::DisplayScale)
-#if defined(_WIN32) || defined(__APPLE__)
-      | int(Capabilities::CustomNativeMouseCursor)
-#endif
+      int(Capabilities::DisplayScale) |
+      int(Capabilities::CustomNativeMouseCursor)
     // TODO enable this when the GPU support is ready
 #if 0 // SK_SUPPORT_GPU
       | int(Capabilities::GpuAccelerationSwitch)

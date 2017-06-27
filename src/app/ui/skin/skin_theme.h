@@ -12,12 +12,14 @@
 #include "gfx/color.h"
 #include "gfx/fwd.h"
 #include "ui/manager.h"
+#include "ui/scale.h"
 #include "ui/theme.h"
 
 #include "theme.xml.h"
 
 #include <map>
 #include <string>
+#include <vector>
 
 namespace ui {
   class Entry;
@@ -45,11 +47,13 @@ namespace app {
       SkinTheme();
       ~SkinTheme();
 
+      const std::string& path() { return m_path; }
+
       she::Font* getDefaultFont() const override { return m_defaultFont; }
       she::Font* getWidgetFont(const ui::Widget* widget) const override;
       she::Font* getMiniFont() const { return m_miniFont; }
 
-      ui::Cursor* getCursor(ui::CursorType type) override;
+      ui::Cursor* getStandardCursor(ui::CursorType type) override;
       void initWidget(ui::Widget* widget) override;
       void getWindowMask(ui::Widget* widget, gfx::Region& region) override;
       int getScrollbarSize() override;
@@ -57,7 +61,6 @@ namespace app {
 
       void paintEntry(ui::PaintEvent& ev) override;
       void paintListBox(ui::PaintEvent& ev) override;
-      void paintListItem(ui::PaintEvent& ev) override;
       void paintMenu(ui::PaintEvent& ev) override;
       void paintMenuItem(ui::PaintEvent& ev) override;
       void paintSlider(ui::PaintEvent& ev) override;
@@ -96,12 +99,18 @@ namespace app {
           return SkinPartPtr(nullptr);
       }
 
+      ui::Cursor* getCursorById(const std::string& id) const {
+        auto it = m_cursors.find(id);
+        if (it != m_cursors.end())
+          return it->second;
+        else
+          return nullptr;
+      }
+
       int getDimensionById(const std::string& id) const {
-        // Warning! Don't use ui::guiscale(), as CurrentTheme::get()
-        // is still nullptr when we use this getDimensionById()
         auto it = m_dimensions_by_id.find(id);
         if (it != m_dimensions_by_id.end())
-          return it->second * this->guiscale();
+          return it->second * ui::guiscale();
         else
           return 0;
       }
@@ -121,9 +130,9 @@ namespace app {
 
     private:
       void loadFontData();
-      void loadAll(const std::string& skinId);
-      void loadSheet(const std::string& skinId);
-      void loadXml(const std::string& skinId);
+      void loadAll(const std::string& themeId);
+      void loadSheet();
+      void loadXml();
 
       she::Surface* sliceSheet(she::Surface* sur, const gfx::Rect& bounds);
       gfx::Color getWidgetBgColor(ui::Widget* widget);
@@ -132,28 +141,21 @@ namespace app {
                     int selected_offset, int mnemonic);
       void drawEntryText(ui::Graphics* g, ui::Entry* widget);
 
-      std::string themeFileName(const std::string& skinId,
-                                const std::string& fileName) const;
+      std::string findThemePath(const std::string& themeId) const;
 
+      std::string m_path;
       she::Surface* m_sheet;
       std::map<std::string, SkinPartPtr> m_parts_by_id;
       std::map<std::string, gfx::Color> m_colors_by_id;
       std::map<std::string, int> m_dimensions_by_id;
-      std::vector<ui::Cursor*> m_cursors;
+      std::map<std::string, ui::Cursor*> m_cursors;
+      std::vector<ui::Cursor*> m_standardCursors;
       std::map<std::string, ui::Style*> m_styles;
       std::map<std::string, FontData*> m_fonts;
       std::map<std::string, she::Font*> m_themeFonts;
       she::Font* m_defaultFont;
       she::Font* m_miniFont;
     };
-
-    inline SkinPartPtr get_part_by_id(const std::string& id) {
-      return static_cast<SkinTheme*>(ui::Manager::getDefault()->theme())->getPartById(id);
-    }
-
-    inline gfx::Color get_color_by_id(const std::string& id) {
-      return static_cast<SkinTheme*>(ui::Manager::getDefault()->theme())->getColorById(id);
-    }
 
   } // namespace skin
 } // namespace app

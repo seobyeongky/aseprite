@@ -26,19 +26,26 @@ namespace doc {
   class Remap;
 }
 
-namespace ui {
-  class Box;
-  class Button;
-  class Label;
+namespace render {
+  class DitheringAlgorithmBase;
+  class DitheringMatrix;
 }
 
 namespace tools {
   class Tool;
 }
 
+namespace ui {
+  class Box;
+  class Button;
+  class Label;
+  class TooltipManager;
+}
+
 namespace app {
 
   class BrushSlot;
+  class DitheringSelector;
 
   class ContextBar : public ui::Box
                    , public obs::observable<ContextBarObserver>
@@ -70,6 +77,10 @@ namespace app {
 
     void setInkType(tools::InkType type);
 
+    // For gradients
+    render::DitheringMatrix ditheringMatrix();
+    render::DitheringAlgorithmBase* ditheringAlgorithm();
+
     // Signals
     obs::signal<void()> BrushChange;
 
@@ -88,6 +99,8 @@ namespace app {
 
     // ActiveToolObserver impl
     void onActiveToolChange(tools::Tool* tool) override;
+
+    void setupTooltips(ui::TooltipManager* tooltipManager);
 
     class ZoomButtons;
     class BrushTypeField;
@@ -134,6 +147,7 @@ namespace app {
     SprayWidthField* m_sprayWidth;
     SpraySpeedField* m_spraySpeed;
     ui::Box* m_selectionOptionsBox;
+    DitheringSelector* m_ditheringSelector;
     SelectionModeField* m_selectionMode;
     TransparentColorField* m_transparentColor;
     PivotField* m_pivot;

@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -20,7 +20,7 @@
 #include "app/ui/editor/editor_customization_delegate.h"
 #include "app/ui/main_window.h"
 #include "app/ui/status_bar.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "app/ui_context.h"
 #include "app/util/range_utils.h"
 #include "doc/cel.h"
@@ -173,9 +173,14 @@ bool MovingCelState::onMouseUp(Editor* editor, MouseMessage* msg)
       }
 
       // Move selection if it was visible
-      if (m_maskVisible)
-        api.setMaskPosition(document->mask()->bounds().x + m_celOffset.x,
-                            document->mask()->bounds().y + m_celOffset.y);
+      if (m_maskVisible) {
+        // TODO Moving the mask when we move a ref layer (e.g. by
+        //      m_celOffset=(0.5,0.5)) will not move the final
+        //      position of the mask (so the ref layer is moved and
+        //      the mask isn't).
+        api.setMaskPosition(document->mask()->bounds().x + int(m_celOffset.x),
+                            document->mask()->bounds().y + int(m_celOffset.y));
+      }
 
       transaction.commit();
     }
@@ -200,11 +205,12 @@ bool MovingCelState::onMouseUp(Editor* editor, MouseMessage* msg)
 
 bool MovingCelState::onMouseMove(Editor* editor, MouseMessage* msg)
 {
-  gfx::PointF newCursorPos = editor->screenToEditorF(msg->position());
+  const gfx::Point mousePos = editor->autoScroll(msg, AutoScroll::MouseDir);
+  const gfx::PointF newCursorPos = editor->screenToEditorF(mousePos);
 
   switch (m_handle) {
 
-    case MoveHandle:
+    case MovePixelsHandle:
       m_celOffset = newCursorPos - m_cursorStart;
       if (int(editor->getCustomizationDelegate()
               ->getPressedKeyAction(KeyContext::TranslatingSelection) & KeyAction::LockAxis)) {
@@ -297,8 +303,8 @@ bool MovingCelState::onUpdateStatusBar(Editor* editor)
 
 gfx::Point MovingCelState::intCelOffset() const
 {
-  return gfx::Point(std::round(m_celOffset.x),
-                    std::round(m_celOffset.y));
+  return gfx::Point(int(std::round(m_celOffset.x)),
+                    int(std::round(m_celOffset.y)));
 }
 
 } // namespace app

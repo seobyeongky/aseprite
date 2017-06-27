@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,7 +10,9 @@
 
 #include "app/ui/palettes_listbox.h"
 
+#include "app/app.h"
 #include "app/document.h"
+#include "app/extensions.h"
 #include "app/modules/palettes.h"
 #include "app/res/palette_resource.h"
 #include "app/res/palettes_loader_delegate.h"
@@ -60,15 +62,16 @@ class PalettesListItem : public ResourceListItem {
     CommentButton(const std::string& comment)
       : IconButton(SkinTheme::instance()->parts.iconUserData()->bitmap(0))
       , m_comment(comment) {
+      setFocusStop(false);
     }
 
   private:
     void onClick(Event& ev) override {
       IconButton::onClick(ev);
 
-      int j, i = m_comment.find("http");
+      std::string::size_type j, i = m_comment.find("http");
       if (i != std::string::npos) {
-        for (j=i+4; j<int(m_comment.size()) && is_url_char(m_comment[j]); ++j)
+        for (j=i+4; j != m_comment.size() && is_url_char(m_comment[j]); ++j)
           ;
         base::launcher::open_url(m_comment.substr(i, j-i));
       }
@@ -111,6 +114,10 @@ PalettesListBox::PalettesListBox()
   : ResourcesListBox(new ResourcesLoader(new PalettesLoaderDelegate))
 {
   addChild(&m_tooltips);
+
+  m_extPaletteChanges =
+    App::instance()->extensions().PalettesChange.connect(
+      base::Bind<void>(&PalettesListBox::reload, this));
 }
 
 doc::Palette* PalettesListBox::selectedPalette()

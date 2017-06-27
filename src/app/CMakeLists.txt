@@ -41,8 +41,8 @@ add_custom_command(
   DEPENDS gen)
 list(APPEND generated_files ${output_fn})
 
-# Generate theme.xml.h from data/themes/default/theme.xml
-set(theme_xml ${CMAKE_SOURCE_DIR}/data/themes/default/theme.xml)
+# Generate theme.xml.h from data/extensions/aseprite-theme/theme.xml
+set(theme_xml ${CMAKE_SOURCE_DIR}/data/extensions/aseprite-theme/theme.xml)
 set(output_fn ${CMAKE_CURRENT_BINARY_DIR}/theme.xml.h)
 add_custom_command(
   OUTPUT ${output_fn}
@@ -81,6 +81,9 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 if(WITH_WEBP_SUPPORT)
   add_definitions(-DASEPRITE_WITH_WEBP_SUPPORT)
 endif()
+
+# libarchive definitions
+add_definitions(-DLIBARCHIVE_STATIC)
 
 ######################################################################
 # app-lib target
@@ -199,6 +202,7 @@ add_library(app-lib
   cmd/set_frame_tag_color.cpp
   cmd/set_frame_tag_name.cpp
   cmd/set_frame_tag_range.cpp
+  cmd/set_last_point.cpp
   cmd/set_layer_blend_mode.cpp
   cmd/set_layer_flags.cpp
   cmd/set_layer_name.cpp
@@ -347,6 +351,7 @@ add_library(app-lib
   commands/filters/cmd_color_curve.cpp
   commands/filters/cmd_convolution_matrix.cpp
   commands/filters/cmd_despeckle.cpp
+  commands/filters/cmd_hue_saturation.cpp
   commands/filters/cmd_invert_color.cpp
   commands/filters/cmd_replace_color.cpp
   commands/filters/color_curve_editor.cpp
@@ -365,8 +370,10 @@ add_library(app-lib
   document_range.cpp
   document_range_ops.cpp
   document_undo.cpp
+  extensions.cpp
   extra_cel.cpp
   file/file.cpp
+  file/file_data.cpp
   file/file_format.cpp
   file/file_formats_manager.cpp
   file/palette_file.cpp
@@ -382,6 +389,7 @@ add_library(app-lib
   ini_file.cpp
   job.cpp
   launcher.cpp
+  load_matrix.cpp
   log.cpp
   loop_tag.cpp
   modules.cpp
@@ -393,6 +401,7 @@ add_library(app-lib
   pref/preferences.cpp
   project.cpp
   recent_files.cpp
+  render_task_job.cpp
   res/http_loader.cpp
   res/palettes_loader_delegate.cpp
   res/resources_loader.cpp
@@ -414,7 +423,6 @@ add_library(app-lib
   tools/tool_loop_manager.cpp
   transaction.cpp
   transformation.cpp
-  ui/ani_controls.cpp
   ui/app_menuitem.cpp
   ui/backup_indicator.cpp
   ui/browser_view.cpp
@@ -430,6 +438,7 @@ add_library(app-lib
   ui/color_wheel.cpp
   ui/configure_timeline_popup.cpp
   ui/context_bar.cpp
+  ui/dithering_selector.cpp
   ui/document_view.cpp
   ui/drop_down_button.cpp
   ui/editor/brush_preview.cpp
@@ -440,6 +449,7 @@ add_library(app-lib
   ui/editor/editor_view.cpp
   ui/editor/moving_cel_state.cpp
   ui/editor/moving_pixels_state.cpp
+  ui/editor/moving_selection_state.cpp
   ui/editor/moving_slice_state.cpp
   ui/editor/moving_symmetry_state.cpp
   ui/editor/navigate_state.cpp
@@ -487,7 +497,8 @@ add_library(app-lib
   ui/slice_window.cpp
   ui/status_bar.cpp
   ui/tabs.cpp
-  ui/timeline.cpp
+  ui/timeline/ani_controls.cpp
+  ui/timeline/timeline.cpp
   ui/toolbar.cpp
   ui/user_data_popup.cpp
   ui/workspace.cpp
@@ -540,7 +551,9 @@ target_link_libraries(app-lib
   ${WEBP_LIBRARIES}
   ${ZLIB_LIBRARIES}
   ${FREETYPE_LIBRARIES}
-  ${HARFBUZZ_LIBRARIES})
+  ${HARFBUZZ_LIBRARIES}
+  json11
+  archive_static)
 
 if(ENABLE_SCRIPTING)
   target_link_libraries(app-lib script-lib)

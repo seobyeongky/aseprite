@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -17,6 +17,7 @@
 #include "app/job.h"
 #include "app/modules/palettes.h"
 #include "app/pref/preferences.h"
+#include "app/render_task_job.h"
 #include "app/transaction.h"
 #include "app/ui/color_bar.h"
 #include "app/ui_context.h"
@@ -39,37 +40,6 @@ public:
 protected:
   bool onEnabled(Context* context) override;
   void onExecute(Context* context) override;
-};
-
-class ColorQuantizationJob : public Job,
-                             public render::PaletteOptimizerDelegate {
-public:
-  ColorQuantizationJob(Sprite* sprite, bool withAlpha, Palette* palette)
-    : Job("Creating Palette")
-    , m_sprite(sprite)
-    , m_withAlpha(withAlpha)
-    , m_palette(palette) {
-  }
-
-private:
-
-  void onJob() override {
-    render::create_palette_from_sprite(
-      m_sprite, 0, m_sprite->lastFrame(),
-      m_withAlpha, m_palette, this);
-  }
-
-  bool onPaletteOptimizerContinue() override {
-    return !isCanceled();
-  }
-
-  void onPaletteOptimizerProgress(double progress) override {
-    jobProgress(progress);
-  }
-
-  Sprite* m_sprite;
-  bool m_withAlpha;
-  Palette* m_palette;
 };
 
 ColorQuantizationCommand::ColorQuantizationCommand()
@@ -143,8 +113,14 @@ void ColorQuantizationCommand::onExecute(Context* context)
       return;
 
     Palette tmpPalette(frame, entries.picks());
-    ColorQuantizationJob job(sprite, withAlpha, &tmpPalette);
-    job.startJob();
+
+    RenderTaskJob job("Creating Palette");
+    job.startJob(
+      [sprite, withAlpha, &tmpPalette, &job]{
+        render::create_palette_from_sprite(
+          sprite, 0, sprite->lastFrame(),
+          withAlpha, &tmpPalette, &job);
+      });
     job.waitJob();
     if (job.isCanceled())
       return;

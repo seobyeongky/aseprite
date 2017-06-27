@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -19,6 +19,7 @@
 #include "app/commands/commands.h"
 #include "app/console.h"
 #include "app/crash/data_recovery.h"
+#include "app/extensions.h"
 #include "app/file/file.h"
 #include "app/file/file_formats_manager.h"
 #include "app/file_system.h"
@@ -96,6 +97,7 @@ public:
   RecentFiles m_recent_files;
   InputChain m_inputChain;
   clipboard::ClipboardManager m_clipboardManager;
+  Extensions m_extensions;
   // This is a raw pointer because we want to delete this explicitly.
   app::crash::DataRecovery* m_recovery;
 
@@ -146,10 +148,9 @@ void App::initialize(const AppOptions& options)
 {
   m_isGui = options.startUI() && !options.previewCLI();
   m_isShell = options.startShell();
-  if (m_isGui)
-    m_uiSystem.reset(new ui::UISystem);
-
   m_coreModules = new CoreModules;
+  if (m_isGui)
+    m_uiSystem.reset(new ui::UISystem(preferences().general.uiScale()));
 
   bool createLogInDesktop = false;
   switch (options.verboseLevel()) {
@@ -209,7 +210,7 @@ void App::initialize(const AppOptions& options)
     ui::Manager::getDefault()->invalidate();
   }
 
-  // Procress options
+  // Process options
   LOG("APP: Processing options...\n");
   {
     base::UniquePtr<CliDelegate> delegate;
@@ -412,6 +413,11 @@ Timeline* App::timeline() const
 Preferences& App::preferences() const
 {
   return m_coreModules->m_preferences;
+}
+
+Extensions& App::extensions() const
+{
+  return m_modules->m_extensions;
 }
 
 crash::DataRecovery* App::dataRecovery() const

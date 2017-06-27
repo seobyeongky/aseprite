@@ -28,7 +28,7 @@
 #include "app/ui/main_window.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui/status_bar.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "app/ui/toolbar.h"
 #include "app/ui/zoom_entry.h"
 #include "app/ui_context.h"
@@ -322,7 +322,7 @@ public:
             break;
         }
 
-        if (*(j+1) == 0 || *(j+1) == ' ') {
+        if (*j == ':' && (*(j+1) == 0 || *(j+1) == ' ')) {
           if (i != text) {
             // Here i is ':' and i-1 is a whitespace ' '
             m_indicators->addTextIndicator(std::string(text, i-1).c_str());
@@ -334,6 +334,8 @@ public:
 
           text = i = (*(j+1) == ' ' ? j+2: j+1);
         }
+        else
+          i = j;
       }
       else
         ++i;

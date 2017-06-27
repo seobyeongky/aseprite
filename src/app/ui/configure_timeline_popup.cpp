@@ -20,7 +20,7 @@
 #include "app/loop_tag.h"
 #include "app/transaction.h"
 #include "app/ui/main_window.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "app/ui_context.h"
 #include "base/bind.h"
 #include "base/scoped_value.h"
@@ -134,7 +134,7 @@ void ConfigureTimelinePopup::updateWidgetsFromCurrentSettings()
 
   bool visibleThumbBox = Preferences::instance().thumbnails.visibleOptions();
 
-  m_box->zoom()->setValue(docPref.thumbnails.zoom());
+  m_box->zoom()->setValue(int(docPref.thumbnails.zoom())); // TODO add a slider for floating points
   m_box->thumbCheck()->setSelected(visibleThumbBox);
   m_box->thumbHSeparator()->setVisible(visibleThumbBox);
   m_box->thumbBox()->setVisible(visibleThumbBox);

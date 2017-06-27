@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -16,6 +16,7 @@
 #include "doc/palette.h"
 #include "doc/primitives.h"
 #include "doc/sprite.h"
+#include "render/ordered_dither.h"
 #include "render/quantization.h"
 #include "render/render.h"
 
@@ -52,7 +53,8 @@ Cel* create_cel_copy(const Cel* srcCel,
       celImage,
       tmpImage.get(),
       IMAGE_RGB,
-      DitheringMethod::NONE,
+      render::DitheringAlgorithm::None,
+      render::DitheringMatrix(),
       srcCel->sprite()->rgbMap(srcCel->frame()),
       srcCel->sprite()->palette(srcCel->frame()),
       srcCel->layer()->isBackground(),
@@ -62,7 +64,8 @@ Cel* create_cel_copy(const Cel* srcCel,
       tmpImage.get(),
       dstCel->image(),
       IMAGE_INDEXED,
-      DitheringMethod::NONE,
+      render::DitheringAlgorithm::None,
+      render::DitheringMatrix(),
       dstSprite->rgbMap(dstFrame),
       dstSprite->palette(dstFrame),
       srcCel->layer()->isBackground(),

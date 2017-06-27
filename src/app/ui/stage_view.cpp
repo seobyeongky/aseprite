@@ -43,7 +43,7 @@
 #include "doc/conversion_she.h"
 #include "doc/palette.h"
 #include "app/color_utils.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "app/ui/editor/moving_pixels_state.h"
 #include "app/ui/editor/pixels_movement.h"
 #include "app/ui/editor/play_state.h"

@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -8,13 +8,10 @@
 #include "config.h"
 #endif
 
-#include "app/app.h"
+#include "app/ui/timeline/ani_controls.h"
+
 #include "app/commands/command.h"
 #include "app/commands/commands.h"
-#include "app/commands/params.h"
-#include "app/context_access.h"
-#include "app/document_access.h"
-#include "app/document_range.h"
 #include "app/modules/editors.h"
 #include "app/modules/playables.h"
 #include "app/modules/gfx.h"
@@ -25,22 +22,13 @@
 #include "app/ui/color_button.h"
 #include "app/ui/editor/editor.h"
 #include "app/ui/keyboard_shortcuts.h"
-#include "app/ui/main_window.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui/status_bar.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "app/ui/playable.h"
 #include "app/ui_context.h"
-#include "app/util/range_utils.h"
 #include "base/bind.h"
-#include "doc/cel.h"
-#include "doc/image.h"
-#include "doc/layer.h"
-#include "doc/sprite.h"
-#include "gfx/size.h"
-#include "she/font.h"
-#include "she/surface.h"
-#include "ui/ui.h"
+#include "ui/tooltips.h"
 
 #include <algorithm>
 #include <cstdarg>
@@ -50,9 +38,7 @@
 namespace app {
 
 using namespace app::skin;
-using namespace gfx;
 using namespace ui;
-using namespace doc;
 
 enum AniAction {
   ACTION_FIRST,

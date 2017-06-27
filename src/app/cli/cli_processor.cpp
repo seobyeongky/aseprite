@@ -31,6 +31,8 @@
 #include "doc/layer.h"
 #include "doc/selected_frames.h"
 #include "doc/selected_layers.h"
+#include "doc/slice.h"
+#include "render/dithering_algorithm.h"
 
 namespace app {
 
@@ -58,7 +60,7 @@ bool match_path(const std::string& filter,
   base::split_string(filter, a, "/");
   base::split_string(layer_path, b, "/");
 
-  for (int i=0; i<a.size() && i<b.size(); ++i) {
+  for (std::size_t i=0; i<a.size() && i<b.size(); ++i) {
     if (a[i] != b[i] && a[i] != "*")
       return false;
   }
@@ -137,6 +139,8 @@ void CliProcessor::process()
     CliOpenFile cof;
     SpriteSheetType sheetType = SpriteSheetType::None;
     app::Document* lastDoc = nullptr;
+    render::DitheringAlgorithm ditheringAlgorithm = render::DitheringAlgorithm::None;
+    std::string ditheringMatrix;
 
     for (const auto& value : m_options.values()) {
       const AppOptions::Option* opt = value.option();
@@ -200,6 +204,10 @@ void CliProcessor::process()
         // --split-tags
         else if (opt == &m_options.splitTags()) {
           cof.splitTags = true;
+        }
+        // --split-slice
+        else if (opt == &m_options.splitSlices()) {
+          cof.splitSlices = true;
         }
         // --layer <layer-name>
         else if (opt == &m_options.layer()) {
@@ -270,6 +278,10 @@ void CliProcessor::process()
           cof.crop.w = base::convert_to<int>(parts[2]);
           cof.crop.h = base::convert_to<int>(parts[3]);
         }
+        // --slice <slice>
+        else if (opt == &m_options.slice()) {
+          cof.slice = value.value();
+        }
         // --filename-format
         else if (opt == &m_options.filenameFormat()) {
           cof.filenameFormat = value.value();
@@ -281,15 +293,18 @@ void CliProcessor::process()
           if (lastDoc) {
             std::string fn = value.value();
 
-            // Automatic --split-layer or --split-tags in case the
-            // output filename already contains {layer} or {tag}
-            // template elements.
+            // Automatic --split-layer, --split-tags, --split-slices
+            // in case the output filename already contains {layer},
+            // {tag}, or {slice} template elements.
             bool hasLayerTemplate = (is_layer_in_filename_format(fn) ||
                                      is_group_in_filename_format(fn));
             bool hasTagTemplate = is_tag_in_filename_format(fn);
-            if (hasLayerTemplate || hasTagTemplate) {
+            bool hasSliceTemplate = is_slice_in_filename_format(fn);
+
+            if (hasLayerTemplate || hasTagTemplate || hasSliceTemplate) {
               cof.splitLayers = (cof.splitLayers || hasLayerTemplate);
               cof.splitTags = (cof.splitTags || hasTagTemplate);
+              cof.splitSlices = (cof.splitSlices || hasSliceTemplate);
               cof.filenameFormat =
                 get_default_filename_format(
                   fn,
@@ -328,6 +343,63 @@ void CliProcessor::process()
           for (auto doc : ctx->documents()) {
             ctx->setActiveDocument(static_cast<app::Document*>(doc));
             ctx->executeCommand(command);
+          }
+        }
+        // --dithering-algorithm <algorithm>
+        else if (opt == &m_options.ditheringAlgorithm()) {
+          if (value.value() == "none")
+            ditheringAlgorithm = render::DitheringAlgorithm::None;
+          else if (value.value() == "ordered")
+            ditheringAlgorithm = render::DitheringAlgorithm::Ordered;
+          else if (value.value() == "old")
+            ditheringAlgorithm = render::DitheringAlgorithm::Old;
+          else
+            throw std::runtime_error("--dithering-algorithm needs a valid algorithm name\n"
+                                     "Usage: --dithering-algorithm <algorithm>\n"
+                                     "Where <algorithm> can be none, ordered, or old");
+        }
+        // --dithering-matrix <id>
+        else if (opt == &m_options.ditheringMatrix()) {
+          ditheringMatrix = value.value();
+        }
+        // --color-mode <mode>
+        else if (opt == &m_options.colorMode()) {
+          Command* command = CommandsModule::instance()->getCommandByName(CommandId::ChangePixelFormat);
+          Params params;
+          if (value.value() == "rgb") {
+            params.set("format", "rgb");
+          }
+          else if (value.value() == "grayscale") {
+            params.set("format", "grayscale");
+          }
+          else if (value.value() == "indexed") {
+            params.set("format", "indexed");
+            switch (ditheringAlgorithm) {
+              case render::DitheringAlgorithm::None:
+                params.set("dithering", "none");
+                break;
+              case render::DitheringAlgorithm::Ordered:
+                params.set("dithering", "ordered");
+                break;
+              case render::DitheringAlgorithm::Old:
+                params.set("dithering", "old");
+                break;
+            }
+
+            if (ditheringAlgorithm != render::DitheringAlgorithm::None &&
+                !ditheringMatrix.empty()) {
+              params.set("dithering-matrix", ditheringMatrix.c_str());
+            }
+          }
+          else {
+            throw std::runtime_error("--color-mode needs a valid color mode for conversion\n"
+                                     "Usage: --color-mode <mode>\n"
+                                     "Where <mode> can be rgb, grayscale, or indexed");
+          }
+
+          for (auto doc : ctx->documents()) {
+            ctx->setActiveDocument(static_cast<app::Document*>(doc));
+            ctx->executeCommand(command, params);
           }
         }
         // --shrink-to <width,height>
@@ -510,7 +582,6 @@ void CliProcessor::saveFile(const CliOpenFile& cof)
   ctx->setActiveDocument(cof.document);
 
   Command* trimCommand = CommandsModule::instance()->getCommandByName(CommandId::AutocropSprite);
-  Command* cropCommand = CommandsModule::instance()->getCommandByName(CommandId::CropSprite);
   Command* undoCommand = CommandsModule::instance()->getCommandByName(CommandId::Undo);
   app::Document* doc = cof.document;
   bool clearUndo = false;
@@ -521,7 +592,9 @@ void CliProcessor::saveFile(const CliOpenFile& cof)
     cropParams.set("y", base::convert_to<std::string>(cof.crop.y).c_str());
     cropParams.set("width", base::convert_to<std::string>(cof.crop.w).c_str());
     cropParams.set("height", base::convert_to<std::string>(cof.crop.h).c_str());
-    ctx->executeCommand(cropCommand, cropParams);
+    ctx->executeCommand(
+      CommandsModule::instance()->getCommandByName(CommandId::CropSprite),
+      cropParams);
   }
 
   std::string fn = cof.filename;
@@ -575,70 +648,91 @@ void CliProcessor::saveFile(const CliOpenFile& cof)
       frameTags.push_back(nullptr);
   }
 
+  std::vector<doc::Slice*> slices;
+  if (cof.hasSlice()) {
+    slices.push_back(
+      doc->sprite()->slices().getByName(cof.slice));
+  }
+  else {
+    doc::Slices& origSlices = cof.document->sprite()->slices();
+    if (cof.splitSlices && !origSlices.empty()) {
+      for (doc::Slice* slice : origSlices)
+        slices.push_back(slice);
+    }
+    else
+      slices.push_back(nullptr);
+  }
+
   bool layerInFormat = is_layer_in_filename_format(fn);
   bool groupInFormat = is_group_in_filename_format(fn);
 
-  for (doc::FrameTag* frameTag : frameTags) {
-    // For each layer, hide other ones and save the sprite.
-    for (doc::Layer* layer : layers) {
-      RestoreVisibleLayers layersVisibility;
+  for (doc::Slice* slice : slices) {
+    for (doc::FrameTag* frameTag : frameTags) {
+      // For each layer, hide other ones and save the sprite.
+      for (doc::Layer* layer : layers) {
+        RestoreVisibleLayers layersVisibility;
 
-      if (cof.splitLayers) {
-        ASSERT(layer);
+        if (cof.splitLayers) {
+          ASSERT(layer);
 
-        // If the user doesn't want all layers and this one is hidden.
-        if (!layer->isVisible())
-          continue;     // Just ignore this layer.
+          // If the user doesn't want all layers and this one is hidden.
+          if (!layer->isVisible())
+            continue;     // Just ignore this layer.
 
-        // Make this layer ("show") the only one visible.
-        layersVisibility.showLayer(layer);
-      }
-      else if (!filteredLayers.empty())
-        layersVisibility.showSelectedLayers(doc->sprite(), filteredLayers);
-
-      if (layer) {
-        if ((layerInFormat && layer->isGroup()) ||
-            (!layerInFormat && groupInFormat && !layer->isGroup())) {
-          continue;
+          // Make this layer ("show") the only one visible.
+          layersVisibility.showLayer(layer);
         }
-      }
+        else if (!filteredLayers.empty())
+          layersVisibility.showSelectedLayers(doc->sprite(), filteredLayers);
 
-      // TODO --trim --save-as --split-layers doesn't make too much
-      // sense as we lost the trim rectangle information (e.g. we
-      // don't have sheet .json) Also, we should trim each frame
-      // individually (a process that can be done only in
-      // FileOp::operate()).
-      if (cof.trim)
-        ctx->executeCommand(trimCommand);
+        if (layer) {
+          if ((layerInFormat && layer->isGroup()) ||
+              (!layerInFormat && groupInFormat && !layer->isGroup())) {
+            continue;
+          }
+        }
 
-      CliOpenFile itemCof = cof;
-      FilenameInfo fnInfo;
-      fnInfo.filename(fn);
-      if (layer) {
-        fnInfo.layerName(layer->name());
+        // TODO --trim --save-as --split-layers doesn't make too much
+        // sense as we lost the trim rectangle information (e.g. we
+        // don't have sheet .json) Also, we should trim each frame
+        // individually (a process that can be done only in
+        // FileOp::operate()).
+        if (cof.trim)
+          ctx->executeCommand(trimCommand);
 
-        if (layer->isGroup())
-          fnInfo.groupName(layer->name());
-        else if (layer->parent() != layer->sprite()->root())
-          fnInfo.groupName(layer->parent()->name());
+        CliOpenFile itemCof = cof;
+        FilenameInfo fnInfo;
+        fnInfo.filename(fn);
+        if (layer) {
+          fnInfo.layerName(layer->name());
 
-        itemCof.includeLayers.push_back(layer->name());
-      }
-      if (frameTag) {
-        fnInfo
-          .innerTagName(frameTag->name())
-          .outerTagName(frameTag->name());
-        itemCof.frameTag = frameTag->name();
-      }
-      itemCof.filename = filename_formatter(filenameFormat, fnInfo);
-      itemCof.filenameFormat = filename_formatter(filenameFormat, fnInfo, false);
+          if (layer->isGroup())
+            fnInfo.groupName(layer->name());
+          else if (layer->parent() != layer->sprite()->root())
+            fnInfo.groupName(layer->parent()->name());
 
-      // Call delegate
-      m_delegate->saveFile(itemCof);
+          itemCof.includeLayers.push_back(layer->name());
+        }
+        if (frameTag) {
+          fnInfo
+            .innerTagName(frameTag->name())
+            .outerTagName(frameTag->name());
+          itemCof.frameTag = frameTag->name();
+        }
+        if (slice) {
+          fnInfo.sliceName(slice->name());
+          itemCof.slice = slice->name();
+        }
+        itemCof.filename = filename_formatter(filenameFormat, fnInfo);
+        itemCof.filenameFormat = filename_formatter(filenameFormat, fnInfo, false);
 
-      if (cof.trim) {
-        ctx->executeCommand(undoCommand);
-        clearUndo = true;
+        // Call delegate
+        m_delegate->saveFile(itemCof);
+
+        if (cof.trim) {
+          ctx->executeCommand(undoCommand);
+          clearUndo = true;
+        }
       }
     }
   }

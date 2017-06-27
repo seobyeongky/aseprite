@@ -42,14 +42,14 @@ static WidgetType colorbutton_type()
 }
 
 ColorButton::ColorButton(const app::Color& color,
-                         PixelFormat pixelFormat,
-                         bool canPinSelector)
+                         const PixelFormat pixelFormat,
+                         const ColorButtonOptions& options)
   : ButtonBase("", colorbutton_type(), kButtonWidget, kButtonWidget)
   , m_color(color)
   , m_pixelFormat(pixelFormat)
-  , m_window(NULL)
+  , m_window(nullptr)
   , m_dependOnLayer(false)
-  , m_canPinSelector(canPinSelector)
+  , m_options(options)
 {
   setFocusStop(true);
   initTheme();
@@ -80,13 +80,22 @@ app::Color ColorButton::getColor() const
   return m_color;
 }
 
-void ColorButton::setColor(const app::Color& color)
+void ColorButton::setColor(const app::Color& origColor)
 {
+  // Before change (this signal can modify the color)
+  app::Color color = origColor;
+  BeforeChange(color);
+
   m_color = color;
 
   // Change the color in its related window
-  if (m_window)
-    m_window->setColor(m_color, ColorPopup::DoNotChangeType);
+  if (m_window) {
+    // In the window we show the original color. In case
+    // BeforeChange() has changed the color type (e.g. to index), we
+    // don't care, in the window we prefer to keep the original
+    // HSV/HSL values.
+    m_window->setColor(origColor, ColorPopup::DontChangeType);
+  }
 
   // Emit signal
   Change(color);
@@ -152,7 +161,7 @@ bool ColorButton::onProcessMessage(Message* msg)
 
     case kSetCursorMessage:
       if (hasCapture()) {
-        ui::set_mouse_cursor(kEyedropperCursor);
+        ui::set_mouse_cursor(kCustomCursor, SkinTheme::instance()->cursors.eyedropper());
         return true;
       }
       break;
@@ -207,7 +216,7 @@ void ColorButton::onPaint(PaintEvent& ev)
         current_editor->sprite()->pixelFormat() == IMAGE_INDEXED) {
       m_dependOnLayer = true;
 
-      if (current_editor->sprite()->transparentColor() == color.getIndex() &&
+      if (int(current_editor->sprite()->transparentColor()) == color.getIndex() &&
           current_editor->layer() &&
           !current_editor->layer()->isBackground()) {
         color = app::Color::fromMask();
@@ -253,7 +262,7 @@ void ColorButton::onClick(Event& ev)
 
 void ColorButton::onLoadLayout(ui::LoadLayoutEvent& ev)
 {
-  if (m_canPinSelector) {
+  if (canPin()) {
     bool pinned = false;
     ev.stream() >> pinned;
     if (ev.stream() && pinned)
@@ -263,7 +272,7 @@ void ColorButton::onLoadLayout(ui::LoadLayoutEvent& ev)
 
 void ColorButton::onSaveLayout(ui::SaveLayoutEvent& ev)
 {
-  if (m_canPinSelector && m_window && m_window->isPinned())
+  if (canPin() && m_window && m_window->isPinned())
     ev.stream() << 1 << ' ' << m_window->bounds();
   else
     ev.stream() << 0;
@@ -274,7 +283,7 @@ void ColorButton::openSelectorDialog()
   bool pinned = (!m_windowDefaultBounds.isEmpty());
 
   if (m_window == NULL) {
-    m_window = new ColorPopup(m_canPinSelector);
+    m_window = new ColorPopup(m_options);
     m_window->ColorChange.connect(&ColorButton::onWindowColorChange, this);
   }
 
@@ -328,7 +337,7 @@ void ColorButton::onActiveSiteChange(const Site& site)
   if (m_dependOnLayer)
     invalidate();
 
-  if (m_canPinSelector) {
+  if (canPin()) {
     // Hide window
     if (!site.document()) {
       if (m_window)

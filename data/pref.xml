@@ -50,9 +50,11 @@
       <value id="RGB" value="4" />
       <value id="HSVA" value="5" />
       <value id="HSV" value="6" />
-      <value id="GRAYA" value="7" />
-      <value id="GRAY" value="8" />
-      <value id="INDEX" value="9" />
+      <value id="HSLA" value="7" />
+      <value id="HSL" value="8" />
+      <value id="GRAYA" value="9" />
+      <value id="GRAY" value="10" />
+      <value id="INDEX" value="11" />
     </enum>
     <enum id="EyedropperSample">
       <value id="ALL_LAYERS" value="0" />
@@ -79,6 +81,7 @@
       <value id="NONE" value="0" />
       <value id="HORIZONTAL" value="1" />
       <value id="VERTICAL" value="2" />
+      <value id="BOTH" value="3" />
     </enum>
     <enum id="PaintingCursorType">
       <value id="SIMPLE_CROSSHAIR" value="0" />
@@ -187,6 +190,7 @@
     </section>
     <section id="selection">
       <option id="mode" type="SelectionMode" default="SelectionMode::DEFAULT" />
+      <option id="move_edges" type="bool" default="true" />
       <option id="pivot_visibility" type="bool" default="false" />
       <option id="pivot_position" type="PivotPosition" default="PivotPosition::CENTER" />
       <option id="opaque" type="bool" default="false" />
@@ -229,6 +233,13 @@
     </section>
     <section id="perf">
       <option id="show_render_time" type="bool" default="false" />
+    </section>
+    <section id="guides">
+      <option id="layer_edges_color" type="app::Color" default="app::Color::fromRgb(0, 0, 255)" />
+      <option id="auto_guides_color" type="app::Color" default="app::Color::fromRgb(0, 0, 255, 128)" />
+    </section>
+    <section id="slices">
+      <option id="default_color" type="app::Color" default="app::Color::fromRgb(0, 0, 255)" />
     </section>
   </global>
 
@@ -351,6 +362,7 @@
       <option id="pixel_grid" type="bool" default="false" migrate="pixel_grid.visible" />
       <option id="brush_preview" type="bool" default="true" />
       <option id="slices" type="bool" default="true" />
+      <option id="auto_guides" type="bool" default="true" />
     </section>
   </document>
 

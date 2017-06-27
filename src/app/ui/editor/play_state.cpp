@@ -16,7 +16,9 @@
 #include "app/pref/preferences.h"
 #include "app/tools/ink.h"
 #include "app/ui/editor/editor.h"
+#include "app/ui/editor/editor_customization_delegate.h"
 #include "app/ui/editor/scrolling_state.h"
+#include "app/ui/skin/skin_theme.h"
 #include "app/ui_context.h"
 #include "doc/frame_tag.h"
 #include "doc/handle_anidir.h"
@@ -59,7 +61,10 @@ void PlayState::onEnterState(Editor* editor)
 
   // Get the tag
   if (!m_playAll)
-    m_tag = get_animation_tag(m_editor->sprite(), m_refFrame);
+    m_tag = m_editor
+      ->getCustomizationDelegate()
+      ->getFrameTagProvider()
+      ->getFrameTagByFrame(m_refFrame);
 
   // Go to the first frame of the animation or active frame tag
   if (m_playOnce) {
@@ -153,7 +158,8 @@ bool PlayState::onSetCursor(Editor* editor, const gfx::Point& mouseScreenPos)
   tools::Ink* ink = editor->getCurrentEditorInk();
   if (ink) {
     if (ink->isZoom()) {
-      editor->showMouseCursor(kMagnifierCursor);
+      editor->showMouseCursor(
+        kCustomCursor, skin::SkinTheme::instance()->cursors.magnifier());
       return true;
     }
   }

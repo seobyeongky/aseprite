@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -9,6 +9,7 @@
 #pragma once
 
 #include "app/color.h"
+#include "app/ui/color_button_options.h"
 #include "app/ui/color_source.h"
 #include "doc/context_observer.h"
 #include "doc/pixel_format.h"
@@ -27,8 +28,8 @@ namespace app {
                     , public IColorSource {
   public:
     ColorButton(const app::Color& color,
-                PixelFormat pixelFormat,
-                bool canPinSelector);
+                const PixelFormat pixelFormat,
+                const ColorButtonOptions& options);
     ~ColorButton();
 
     PixelFormat pixelFormat() const;
@@ -41,6 +42,7 @@ namespace app {
     app::Color getColorByPosition(const gfx::Point& pos) override;
 
     // Signals
+    obs::signal<void(app::Color&)> BeforeChange;
     obs::signal<void(const app::Color&)> Change;
 
   protected:
@@ -58,13 +60,14 @@ namespace app {
     void closeSelectorDialog();
     void onWindowColorChange(const app::Color& color);
     void onActiveSiteChange(const Site& site) override;
+    bool canPin() const { return m_options.canPinSelector; }
 
     app::Color m_color;
     PixelFormat m_pixelFormat;
     ColorPopup* m_window;
     gfx::Rect m_windowDefaultBounds;
     bool m_dependOnLayer;
-    bool m_canPinSelector;
+    ColorButtonOptions m_options;
   };
 
 } // namespace app

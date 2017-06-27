@@ -27,7 +27,6 @@
       </key>
       <!-- Edit -->
       <key command="Undo" shortcut="Ctrl+Z" mac="Cmd+Z" />
-      <key command="Undo" shortcut="Ctrl+U" mac="Cmd+U" />
       <key command="Redo" shortcut="Ctrl+Y" mac="Cmd+Y" />
       <key command="Redo" shortcut="Ctrl+R" mac="Cmd+R" />
       <key command="Redo" shortcut="Ctrl+Shift+Z" mac="Cmd+Shift+Z" />
@@ -49,6 +48,7 @@
         <param name="orientation" value="vertical" />
       </key>
       <key command="ReplaceColor" shortcut="Shift+R" />
+      <key command="HueSaturation" shortcut="Ctrl+U" mac="Cmd+U" />
       <key command="ConvolutionMatrix" shortcut="F9" />
       <key command="ColorCurve" shortcut="Ctrl+M" mac="Cmd+M" />
       <key command="ColorCurve" shortcut="F10" />
@@ -112,6 +112,9 @@
       <key command="ShowOnionSkin" shortcut="F3" />
       <key command="ToggleTimelineThumbnails" shortcut="F6" />
       <key command="Timeline" shortcut="Tab">
+        <param name="switch" value="true" />
+      </key>
+      <key command="PaletteEditor" shortcut="A">
         <param name="switch" value="true" />
       </key>
       <key command="PaletteEditor" shortcut="F4">
@@ -428,6 +431,20 @@
       <key command="SelectTile">
         <param name="mode" value="subtract" />
       </key>
+      <key command="ChangePixelFormat">
+        <param name="format" value="rgb" />
+      </key>
+      <key command="ChangePixelFormat">
+        <param name="format" value="grayscale" />
+      </key>
+      <key command="ChangePixelFormat">
+        <param name="format" value="indexed" />
+        <param name="dithering" value="ordered" />
+      </key>
+      <key command="ChangePixelFormat">
+        <param name="format" value="indexed" />
+        <param name="dithering" value="old-ordered" />
+      </key>
     </commands>
 
     <!-- Keyboard shortcuts to select tools -->
@@ -446,10 +463,10 @@
       <key tool="hand" shortcut="H" />
       <key tool="move" shortcut="V" />
       <key tool="slice" shortcut="C" />
-      <key tool="move_slice" shortcut="C" />
       <key tool="zoom" shortcut="Z" />
 
       <key tool="paint_bucket" shortcut="G" />
+      <key tool="gradient" shortcut="G" />
 
       <key tool="line" shortcut="L" />
       <key tool="curve" shortcut="Shift+L" />
@@ -509,6 +526,7 @@
 
       <!-- Modifiers for freehand tool controller  -->
       <key action="StraightLineFromLastPoint" shortcut="Shift" />
+      <key action="AngleSnapFromLastPoint" shortcut="Ctrl" />
 
       <!-- Modifiers for two-points tool controller -->
       <key action="SquareAspect" shortcut="Shift" />
@@ -613,7 +631,8 @@
         <item command="NewSpriteFromSelection" text="&amp;New Sprite from Selection" />
         <separator />
         <item command="ReplaceColor" text="R&amp;eplace Color..." />
-        <item command="InvertColor" text="&amp;Invert" />
+        <item command="InvertColor" text="&amp;Invert..." />
+        <item command="HueSaturation" text="Ad&amp;just Hue/Saturation..." />
         <menu text="F&amp;X" id="fx_popup">
           <item command="ConvolutionMatrix" text="Convolution &amp;Matrix" />
           <item command="ColorCurve" text="&amp;Color Curve" />
@@ -639,13 +658,11 @@
           <item command="ChangePixelFormat" text="&amp;Grayscale">
             <param name="format" value="grayscale" />
           </item>
-          <item command="ChangePixelFormat" text="&amp;Indexed (No Dithering)">
+          <item command="ChangePixelFormat" text="&amp;Indexed">
             <param name="format" value="indexed" />
           </item>
-          <item command="ChangePixelFormat" text="Indexed (Ordered &amp;Dither)">
-            <param name="format" value="indexed" />
-            <param name="dithering" value="ordered" />
-          </item>
+          <separator />
+          <item command="ChangePixelFormat" text="&amp;More Options" />
         </menu>
         <separator />
         <item command="DuplicateSprite" text="&amp;Duplicate..." />
@@ -770,6 +787,7 @@
           <item command="ShowLayerEdges" text="&amp;Layer Edges" />
           <item command="ShowSelectionEdges" text="&amp;Selection Edges" />
           <item command="ShowGrid" text="&amp;Grid" />
+          <item command="ShowAutoGuides" text="&amp;Auto Guides" />
           <item command="ShowSlices" text="Sl&amp;ices" />
           <item command="ShowPixelGrid" text="&amp;Pixel Grid" />
           <separator />
@@ -924,7 +942,7 @@
     </menu>
 
     <menu id="palette_popup">
-      <item command="PaletteEditor" text="&amp;Palette Editor">
+      <item command="PaletteEditor" text="Edit &amp;Palette">
         <param name="switch" value="true" />
       </item>
       <item command="PaletteSize" text="Palette Si&amp;ze" />
@@ -1135,15 +1153,6 @@
             intertwine="as_rectangles"
             tracepolicy="last"
             />
-      <tool id="move_slice"
-            text="Move Slice Tool"
-            fill="none"
-            ink="move_slice"
-            controller="two_points"
-            pointshape="pixel"
-            intertwine="as_rectangles"
-            tracepolicy="last"
-            />
     </group>
 
     <group id="paint_bucket" text="Paint Bucket Tool">
@@ -1153,6 +1162,14 @@
             controller="one_point"
             pointshape="floodfill"
             tracepolicy="accumulate"
+            />
+      <tool id="gradient"
+            text="Gradient Tool"
+            ink="gradient"
+            controller="two_points"
+            pointshape="floodfill"
+            intertwine="first_point"
+            tracepolicy="last"
             />
     </group>
 

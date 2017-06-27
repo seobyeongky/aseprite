@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -52,7 +52,10 @@ class FreehandController : public Controller {
 public:
   bool isFreehand() override { return true; }
 
+  gfx::Point getLastPoint() const override { return m_last; }
+
   void pressButton(Stroke& stroke, const Point& point) override {
+    m_last = point;
     stroke.addPoint(point);
   }
 
@@ -61,6 +64,7 @@ public:
   }
 
   void movement(ToolLoop* loop, Stroke& stroke, const Point& point) override {
+    m_last = point;
     stroke.addPoint(point);
   }
 
@@ -88,11 +92,15 @@ public:
     text = buf;
   }
 
+private:
+  Point m_last;
 };
 
 // Controls clicks for tools like line
 class TwoPointsController : public MoveOriginCapability {
 public:
+  bool isTwoPoints() override { return true; }
+
   void pressButton(Stroke& stroke, const Point& point) override {
     MoveOriginCapability::pressButton(stroke, point);
 
@@ -116,7 +124,7 @@ public:
 
     stroke[1] = point;
 
-    if (int(loop->getModifiers()) & int(ToolLoopModifiers::kSquareAspect)) {
+    if ((int(loop->getModifiers()) & int(ToolLoopModifiers::kSquareAspect))) {
       int dx = stroke[1].x - m_first.x;
       int dy = stroke[1].y - m_first.y;
       int minsize = MIN(ABS(dx), ABS(dy));
@@ -161,7 +169,7 @@ public:
 
     stroke[0] = m_first;
 
-    if (int(loop->getModifiers()) & int(ToolLoopModifiers::kFromCenter)) {
+    if ((int(loop->getModifiers()) & int(ToolLoopModifiers::kFromCenter))) {
       int rx = stroke[1].x - m_first.x;
       int ry = stroke[1].y - m_first.y;
       stroke[0].x = m_first.x - rx;
@@ -371,6 +379,65 @@ public:
 
 private:
   int m_clickCounter;
+};
+
+// Controls the shift+click to draw a two-points line and then
+// freehand until the mouse is released.
+class LineFreehandController : public Controller {
+public:
+  bool isFreehand() override { return true; }
+
+  gfx::Point getLastPoint() const override { return m_last; }
+
+  void prepareController(ToolLoop* loop) override {
+    m_controller = nullptr;
+  }
+
+  void pressButton(Stroke& stroke, const Point& point) override {
+    m_last = point;
+
+    if (m_controller == nullptr)
+      m_controller = &m_twoPoints;
+    else if (m_controller == &m_twoPoints) {
+      m_controller = &m_freehand;
+      return;                   // Don't send first pressButton() click to the freehand controller
+    }
+
+    m_controller->pressButton(stroke, point);
+  }
+
+  bool releaseButton(Stroke& stroke, const Point& point) override {
+    if (!stroke.empty())
+      m_last = stroke.lastPoint();
+    return false;
+  }
+
+  void movement(ToolLoop* loop, Stroke& stroke, const Point& point) override {
+    m_last = point;
+    m_controller->movement(loop, stroke, point);
+  }
+
+  void getStrokeToInterwine(const Stroke& input, Stroke& output) override {
+    m_controller->getStrokeToInterwine(input, output);
+  }
+
+  void getStatusBarText(const Stroke& stroke, std::string& text) override {
+    m_controller->getStatusBarText(stroke, text);
+  }
+
+  bool handleTracePolicy() const override {
+    return (m_controller == &m_twoPoints);
+  }
+
+  TracePolicy getTracePolicy() const override {
+    return TracePolicy::Last;
+  }
+
+private:
+  Point m_last;
+  TwoPointsController m_twoPoints;
+  FreehandController m_freehand;
+  Controller* m_controller;
 };
 
 } // namespace tools

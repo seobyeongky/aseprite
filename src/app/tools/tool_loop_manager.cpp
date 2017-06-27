@@ -54,6 +54,7 @@ void ToolLoopManager::prepareLoop(const Pointer& pointer)
 
   // Prepare the ink
   m_toolLoop->getInk()->prepareInk(m_toolLoop);
+  m_toolLoop->getController()->prepareController(m_toolLoop);
   m_toolLoop->getIntertwine()->prepareIntertwine();
   m_toolLoop->getPointShape()->preparePointShape(m_toolLoop);
 }
@@ -172,6 +173,9 @@ void ToolLoopManager::doLoopStep(bool last_step)
   else {
     m_toolLoop->validateSrcImage(m_dirtyArea);
   }
+
+  if (m_toolLoop->getInk()->dependsOnStroke())
+    m_toolLoop->getInk()->updateInk(m_toolLoop, strokes);
 
   // Invalidate destionation image areas.
   if (m_toolLoop->getTracePolicy() == TracePolicy::Last) {

@@ -34,20 +34,22 @@ namespace app {
 
     ColorWheel();
 
-    // IColorSource
-    app::Color getColorByPosition(const gfx::Point& pos) override;
-
     bool isDiscrete() const { return m_discrete; }
     void setDiscrete(bool state);
 
     void setColorModel(ColorModel colorModel);
     void setHarmony(Harmony harmony);
 
+  protected:
+    app::Color getMainAreaColor(const int u, const int umax,
+                                const int v, const int vmax) override;
+    app::Color getBottomBarColor(const int u, const int umax) override;
+    void onPaintMainArea(ui::Graphics* g, const gfx::Rect& rc) override;
+    void onPaintBottomBar(ui::Graphics* g, const gfx::Rect& rc) override;
+    bool subColorPicked() override { return m_harmonyPicked; }
+
   private:
-    app::Color getColorInClientPos(const gfx::Point& pos);
     void onResize(ui::ResizeEvent& ev) override;
-    void onPaint(ui::PaintEvent& ev) override;
-    bool onProcessMessage(ui::Message* msg) override;
     void onOptions();
     int getHarmonies() const;
     app::Color getColorInHarmony(int i) const;
@@ -57,7 +59,6 @@ namespace app {
     // With dir == -1, the angle came from HSV and is converted to the current color model.
     int convertHueAngle(int angle, int dir) const;
 
-    gfx::Rect m_clientBounds;
     gfx::Rect m_wheelBounds;
     int m_wheelRadius;
     bool m_discrete;

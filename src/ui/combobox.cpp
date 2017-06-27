@@ -8,9 +8,23 @@
 #include "config.h"
 #endif
 
+#include "ui/combobox.h"
+
 #include "gfx/size.h"
 #include "she/font.h"
-#include "ui/ui.h"
+#include "ui/button.h"
+#include "ui/entry.h"
+#include "ui/listbox.h"
+#include "ui/listitem.h"
+#include "ui/manager.h"
+#include "ui/message.h"
+#include "ui/resize_event.h"
+#include "ui/scale.h"
+#include "ui/size_hint_event.h"
+#include "ui/system.h"
+#include "ui/theme.h"
+#include "ui/view.h"
+#include "ui/window.h"
 
 namespace ui {
 
@@ -41,15 +55,15 @@ private:
 class ComboBoxListBox : public ListBox {
 public:
   ComboBoxListBox(ComboBox* comboBox)
-    : m_comboBox(comboBox)
-  {
-    for (ComboBox::ListItems::iterator
-           it = comboBox->begin(), end = comboBox->end(); it != end; ++it)
-      addChild(*it);
+    : m_comboBox(comboBox) {
+    for (auto item : *comboBox) {
+      if (item->parent())
+        item->parent()->removeChild(item);
+      addChild(item);
+    }
   }
 
-  void clean()
-  {
+  void clean() {
     // Remove all added items so ~Widget() don't delete them.
     removeAllChildren();
     selectChild(nullptr);
@@ -77,6 +91,8 @@ ComboBox::ComboBox()
   , m_editable(false)
   , m_clickopen(true)
   , m_casesensitive(true)
+  , m_filtering(false)
+  , m_useCustomWidget(false)
 {
   // TODO this separation should be from the Theme*
   this->setChildSpacing(0);
@@ -97,6 +113,7 @@ ComboBox::ComboBox()
 
 ComboBox::~ComboBox()
 {
+  removeMessageFilters();
   removeAllItems();
 }
 
@@ -122,6 +139,11 @@ void ComboBox::setClickOpen(bool state)
 void ComboBox::setCaseSensitive(bool state)
 {
   m_casesensitive = state;
+}
+
+void ComboBox::setUseCustomWidget(bool state)
+{
+  m_useCustomWidget = state;
 }
 
 int ComboBox::addItem(ListItem* item)
@@ -387,6 +409,8 @@ void ComboBox::onResize(ResizeEvent& ev)
   // Entry
   m_entry->setBounds(Rect(bounds.x, bounds.y,
                           bounds.w - buttonSize.w, bounds.h));
+
+  putSelectedItemAsCustomWidget();
 }
 
 void ComboBox::onSizeHint(SizeHintEvent& ev)
@@ -574,12 +598,18 @@ void ComboBox::openListBox()
   m_window->noBorderNoChildSpacing();
 
   Widget* viewport = view->viewport();
-  int size = getItemCount();
-  viewport->setMinSize
-    (gfx::Size(
-      m_button->bounds().x2() - m_entry->bounds().x - view->border().width(),
-      +(2*guiscale()+m_listbox->textHeight())*MID(1, size, 16)+
-      +viewport->border().height()));
+  {
+    gfx::Rect entryBounds = m_entry->bounds();
+    gfx::Size size;
+    size.w = m_button->bounds().x2() - entryBounds.x - view->border().width();
+    size.h = viewport->border().height();
+    for (ListItem* item : m_items)
+      size.h += item->sizeHint().h;
+
+    int max = MAX(entryBounds.y, ui::display_h() - entryBounds.y2()) - 8*guiscale();
+    size.h = MID(textHeight(), size.h, max);
+    viewport->setMinSize(size);
+  }
 
   m_window->addChild(view);
   view->attachToView(m_listbox);
@@ -592,8 +622,7 @@ void ComboBox::openListBox()
   m_window->positionWindow(rc.x, rc.y);
   m_window->openWindow();
 
-  manager()->addMessageFilter(kMouseDownMessage, this);
-  manager()->addMessageFilter(kKeyDownMessage, this);
+  filterMessages();
 
   if (isEditable())
     m_entry->requestFocus();
@@ -613,8 +642,8 @@ void ComboBox::closeListBox()
     m_window = nullptr;
     m_listbox = nullptr;
 
-    manager()->removeMessageFilter(kMouseDownMessage, this);
-    manager()->removeMessageFilter(kKeyDownMessage, this);
+    removeMessageFilters();
+    putSelectedItemAsCustomWidget();
     m_entry->requestFocus();
 
     onCloseListBox();
@@ -631,13 +660,14 @@ void ComboBox::switchListBox()
 
 gfx::Rect ComboBox::getListBoxPos() const
 {
-  gfx::Rect rc(gfx::Point(m_entry->bounds().x,
-                          m_entry->bounds().y2()),
+  gfx::Rect entryBounds = m_entry->bounds();
+  gfx::Rect rc(gfx::Point(entryBounds.x,
+                          entryBounds.y2()),
                gfx::Point(m_button->bounds().x2(),
-                          m_entry->bounds().y2()+m_window->bounds().h));
+                          entryBounds.y2() + m_window->bounds().h));
 
   if (rc.y2() > ui::display_h())
-    rc.offset(0, -(rc.h + m_entry->bounds().h));
+    rc.offset(0, -(rc.h + entryBounds.h));
 
   return rc;
 }
@@ -655,6 +685,41 @@ void ComboBox::onOpenListBox()
 void ComboBox::onCloseListBox()
 {
   CloseListBox();
+}
+
+void ComboBox::filterMessages()
+{
+  if (!m_filtering) {
+    manager()->addMessageFilter(kMouseDownMessage, this);
+    manager()->addMessageFilter(kKeyDownMessage, this);
+    m_filtering = true;
+  }
+}
+
+void ComboBox::removeMessageFilters()
+{
+  if (m_filtering) {
+    manager()->removeMessageFilter(kMouseDownMessage, this);
+    manager()->removeMessageFilter(kKeyDownMessage, this);
+    m_filtering = false;
+  }
+}
+
+void ComboBox::putSelectedItemAsCustomWidget()
+{
+  if (!useCustomWidget())
+    return;
+
+  ListItem* item = getSelectedItem();
+  if (item && item->parent() == nullptr) {
+    if (!m_listbox) {
+      item->setBounds(m_entry->childrenBounds());
+      m_entry->addChild(item);
+    }
+    else {
+      m_entry->removeChild(item);
+    }
+  }
 }
 
 } // namespace ui

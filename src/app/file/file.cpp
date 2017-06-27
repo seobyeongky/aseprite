@@ -13,6 +13,7 @@
 #include "app/console.h"
 #include "app/context.h"
 #include "app/document.h"
+#include "app/file/file_data.h"
 #include "app/file/file_format.h"
 #include "app/file/file_formats_manager.h"
 #include "app/file/format_options.h"
@@ -21,14 +22,12 @@
 #include "app/modules/gui.h"
 #include "app/modules/palettes.h"
 #include "app/ui/status_bar.h"
-#include "app/xml_document.h"
 #include "base/fs.h"
 #include "base/mutex.h"
 #include "base/scoped_lock.h"
 #include "base/shared_ptr.h"
 #include "base/string.h"
 #include "doc/doc.h"
-#include "doc/slice.h"          // TODO add this header file in doc.h
 #include "docio/detect_format.h"
 #include "render/quantization.h"
 #include "render/render.h"
@@ -42,45 +41,6 @@
 namespace app {
 
 using namespace base;
-
-namespace {
-
-void updateXmlPartFromSliceKey(const SliceKey* key, TiXmlElement* xmlPart)
-{
-  xmlPart->SetAttribute("x", key->bounds().x);
-  xmlPart->SetAttribute("y", key->bounds().y);
-  if (!key->hasCenter()) {
-    xmlPart->SetAttribute("w", key->bounds().w);
-    xmlPart->SetAttribute("h", key->bounds().h);
-    if (xmlPart->Attribute("w1")) xmlPart->RemoveAttribute("w1");
-    if (xmlPart->Attribute("w2")) xmlPart->RemoveAttribute("w2");
-    if (xmlPart->Attribute("w3")) xmlPart->RemoveAttribute("w3");
-    if (xmlPart->Attribute("h1")) xmlPart->RemoveAttribute("h1");
-    if (xmlPart->Attribute("h2")) xmlPart->RemoveAttribute("h2");
-    if (xmlPart->Attribute("h3")) xmlPart->RemoveAttribute("h3");
-  }
-  else {
-    xmlPart->SetAttribute("w1", key->center().x);
-    xmlPart->SetAttribute("w2", key->center().w);
-    xmlPart->SetAttribute("w3", key->bounds().w - key->center().x2());
-    xmlPart->SetAttribute("h1", key->center().y);
-    xmlPart->SetAttribute("h2", key->center().h);
-    xmlPart->SetAttribute("h3", key->bounds().h - key->center().y2());
-    if (xmlPart->Attribute("w")) xmlPart->RemoveAttribute("w");
-    if (xmlPart->Attribute("h")) xmlPart->RemoveAttribute("h");
-  }
-
-  if (key->hasPivot()) {
-    xmlPart->SetAttribute("focusx", key->pivot().x);
-    xmlPart->SetAttribute("focusy", key->pivot().y);
-  }
-  else {
-    if (xmlPart->Attribute("focusx")) xmlPart->RemoveAttribute("focusx");
-    if (xmlPart->Attribute("focusy")) xmlPart->RemoveAttribute("focusy");
-  }
-}
-
-} // anonymous namespace
 
 std::string get_readable_extensions()
 {
@@ -145,8 +105,8 @@ int save_document(Context* context, doc::Document* document)
   UniquePtr<FileOp> fop(
     FileOp::createSaveDocumentOperation(
       context,
-      FileOpROI(static_cast<app::Document*>(document), "",
-                SelectedFrames(), false),
+      FileOpROI(static_cast<app::Document*>(document),
+                "", "", SelectedFrames(), false),
       document->filename(), ""));
   if (!fop)
     return -1;
@@ -175,19 +135,25 @@ bool is_static_image_format(const std::string& filename)
 
 FileOpROI::FileOpROI()
   : m_document(nullptr)
+  , m_slice(nullptr)
   , m_frameTag(nullptr)
 {
 }
 
 FileOpROI::FileOpROI(const app::Document* doc,
+                     const std::string& sliceName,
                      const std::string& frameTagName,
                      const doc::SelectedFrames& selFrames,
                      const bool adjustByFrameTag)
   : m_document(doc)
+  , m_slice(nullptr)
   , m_frameTag(nullptr)
   , m_selFrames(selFrames)
 {
   if (doc) {
+    if (!sliceName.empty())
+      m_slice = doc->sprite()->slices().getByName(sliceName);
+
     m_frameTag = doc->sprite()->frameTags().getByName(frameTagName);
     if (m_frameTag) {
       if (m_selFrames.empty())
@@ -529,6 +495,7 @@ FileOp* FileOp::createSaveDocumentOperation(const Context* context,
       FilenameInfo fnInfo;
       fnInfo
         .filename(fn)
+        .sliceName(fop->m_roi.slice() ? fop->m_roi.slice()->name(): "")
         .innerTagName(innerTag ? innerTag->name(): "")
         .outerTagName(outerTag ? outerTag->name(): "")
         .frame(outputFrame)
@@ -584,6 +551,8 @@ FileOp* FileOp::createSaveDocumentOperation(const Context* context,
 //
 // After this function you must to mark the FileOp as "done" calling
 // FileOp::done() function.
+//
+// TODO refactor this code
 void FileOp::operate(IFileOpProgress* progress)
 {
   ASSERT(!isDone());
@@ -604,7 +573,7 @@ void FileOp::operate(IFileOpProgress* progress)
       frame_t frame(0);
       Image* old_image = nullptr;
 
-      // TODO set_palette for each frame???
+      // TODO setPalette for each frame???
       auto add_image = [&]() {
         m_seq.last_cel->data()->setImage(m_seq.image);
         m_seq.layer->addCel(m_seq.last_cel);
@@ -714,7 +683,12 @@ void FileOp::operate(IFileOpProgress* progress)
     if (m_document &&
         m_document->sprite()  &&
         !m_dataFilename.empty()) {
-      loadData();
+      try {
+        load_aseprite_data_file(m_dataFilename, m_document);
+      }
+      catch (const std::exception& ex) {
+        setError("Error loading data file: %s\n", ex.what());
+      }
     }
   }
   // Save //////////////////////////////////////////////////////////////////////
@@ -730,8 +704,8 @@ void FileOp::operate(IFileOpProgress* progress)
 
       // Create a temporary bitmap
       m_seq.image.reset(Image::create(sprite->pixelFormat(),
-          sprite->width(),
-          sprite->height()));
+                                      sprite->width(),
+                                      sprite->height()));
 
       m_seq.progress_offset = 0.0f;
       m_seq.progress_fraction = 1.0f / (double)sprite->totalFrames();
@@ -741,7 +715,23 @@ void FileOp::operate(IFileOpProgress* progress)
       frame_t outputFrame = 0;
       for (frame_t frame : m_roi.selectedFrames()) {
         // Draw the "frame" in "m_seq.image"
-        render.renderSprite(m_seq.image.get(), sprite, frame);
+        if (m_roi.slice()) {
+          const SliceKey* key = m_roi.slice()->getByFrame(frame);
+          if (!key || key->isEmpty())
+            continue;           // Skip frame because there is no slice key
+
+          m_seq.image.reset(
+            Image::create(sprite->pixelFormat(),
+                          key->bounds().w,
+                          key->bounds().h));
+
+          render.renderSprite(
+            m_seq.image.get(), sprite, frame,
+            gfx::Clip(gfx::Point(0, 0), key->bounds()));
+        }
+        else {
+          render.renderSprite(m_seq.image.get(), sprite, frame);
+        }
 
         // Setup the palette.
         sprite->palette(frame)->copyColorsTo(m_seq.palette);
@@ -780,7 +770,12 @@ void FileOp::operate(IFileOpProgress* progress)
         m_document->sprite() &&
         !hasError() &&
         !m_dataFilename.empty()) {
-      saveData();
+      try {
+        save_aseprite_data_file(m_dataFilename, m_document);
+      }
+      catch (const std::exception& ex) {
+        setError("Error loading data file: %s\n", ex.what());
+      }
     }
 #else
     setError(
@@ -1064,149 +1059,6 @@ void FileOp::prepareForSequence()
 {
   m_seq.palette = new Palette(frame_t(0), 256);
   m_formatOptions.reset();
-}
-
-void FileOp::loadData()
-{
-  try {
-    XmlDocumentRef xmlDoc = open_xml(m_dataFilename);
-    TiXmlHandle handle(xmlDoc.get());
-
-    TiXmlElement* xmlSlices = handle
-      .FirstChild("sprite")
-      .FirstChild("slices").ToElement();
-
-    // Update theme.xml file
-    if (xmlSlices &&
-        xmlSlices->Attribute("theme")) {
-      std::string themeFileName = xmlSlices->Attribute("theme");
-
-      // Open theme XML file
-      XmlDocumentRef xmlThemeDoc = open_xml(
-        base::join_path(base::get_file_path(m_dataFilename), themeFileName));
-      TiXmlHandle themeHandle(xmlThemeDoc.get());
-      for (TiXmlElement* xmlPart = themeHandle
-             .FirstChild("theme")
-             .FirstChild("parts")
-             .FirstChild("part").ToElement();
-           xmlPart;
-           xmlPart=xmlPart->NextSiblingElement()) {
-        const char* partId = xmlPart->Attribute("id");
-        if (!partId)
-          continue;
-
-        auto slice = new doc::Slice();
-        slice->setName(partId);
-
-        doc::SliceKey key;
-
-        int x = strtol(xmlPart->Attribute("x"), NULL, 10);
-        int y = strtol(xmlPart->Attribute("y"), NULL, 10);
-
-        if (xmlPart->Attribute("w1")) {
-          int w1 = xmlPart->Attribute("w1") ? strtol(xmlPart->Attribute("w1"), NULL, 10): 0;
-          int w2 = xmlPart->Attribute("w2") ? strtol(xmlPart->Attribute("w2"), NULL, 10): 0;
-          int w3 = xmlPart->Attribute("w3") ? strtol(xmlPart->Attribute("w3"), NULL, 10): 0;
-          int h1 = xmlPart->Attribute("h1") ? strtol(xmlPart->Attribute("h1"), NULL, 10): 0;
-          int h2 = xmlPart->Attribute("h2") ? strtol(xmlPart->Attribute("h2"), NULL, 10): 0;
-          int h3 = xmlPart->Attribute("h3") ? strtol(xmlPart->Attribute("h3"), NULL, 10): 0;
-
-          key.setBounds(gfx::Rect(x, y, w1+w2+w3, h1+h2+h3));
-          key.setCenter(gfx::Rect(w1, h1, w2, h2));
-        }
-        else if (xmlPart->Attribute("w")) {
-          int w = xmlPart->Attribute("w") ? strtol(xmlPart->Attribute("w"), NULL, 10): 0;
-          int h = xmlPart->Attribute("h") ? strtol(xmlPart->Attribute("h"), NULL, 10): 0;
-          key.setBounds(gfx::Rect(x, y, w, h));
-        }
-
-        if (xmlPart->Attribute("focusx")) {
-          int x = xmlPart->Attribute("focusx") ? strtol(xmlPart->Attribute("focusx"), NULL, 10): 0;
-          int y = xmlPart->Attribute("focusy") ? strtol(xmlPart->Attribute("focusy"), NULL, 10): 0;
-          key.setPivot(gfx::Point(x, y));
-        }
-
-        slice->insert(0, key);
-        m_document->sprite()->slices().add(slice);
-      }
-    }
-  }
-  catch (const std::exception& ex) {
-    setError("Error loading data file: %s\n", ex.what());
-  }
-}
-
-void FileOp::saveData()
-{
-  try {
-    XmlDocumentRef xmlDoc = open_xml(m_dataFilename);
-    TiXmlHandle handle(xmlDoc.get());
-
-    TiXmlElement* xmlSlices = handle
-      .FirstChild("sprite")
-      .FirstChild("slices").ToElement();
-
-    if (xmlSlices &&
-        xmlSlices->Attribute("theme")) {
-      // Open theme XML file
-      std::string themeFileName = base::join_path(
-          base::get_file_path(m_dataFilename), xmlSlices->Attribute("theme"));
-      XmlDocumentRef xmlThemeDoc = open_xml(themeFileName);
-
-      TiXmlHandle themeHandle(xmlThemeDoc.get());
-      TiXmlElement* xmlNext = nullptr;
-      std::set<std::string> existent;
-
-      TiXmlElement* xmlParts =
-        themeHandle
-        .FirstChild("theme")
-        .FirstChild("parts").ToElement();
-
-      for (TiXmlElement* xmlPart=(TiXmlElement*)xmlParts->FirstChild("part");
-           xmlPart;
-           xmlPart=xmlNext) {
-        xmlNext = xmlPart->NextSiblingElement();
-
-        const char* partId = xmlPart->Attribute("id");
-        if (!partId)
-          continue;
-
-        bool found = false;
-        for (auto slice : m_document->sprite()->slices()) {
-          const SliceKey* key;
-          if ((slice->name() == partId) &&
-              (key = slice->getByFrame(0))) {
-            existent.insert(slice->name());
-            updateXmlPartFromSliceKey(key, xmlPart);
-            found = true;
-            break;
-          }
-        }
-
-        // Delete this <part> element (as the slice was removed)
-        if (!found)
-          xmlPart->Parent()->RemoveChild(xmlPart);
-      }
-
-      for (auto slice : m_document->sprite()->slices()) {
-        const SliceKey* key;
-        if (existent.find(slice->name()) == existent.end() &&
-            (key = slice->getByFrame(0))) {
-
-          TiXmlElement xmlPart("part");
-          xmlPart.SetAttribute("id", slice->name().c_str());
-          updateXmlPartFromSliceKey(key, &xmlPart);
-
-          xmlParts->InsertAfterChild(xmlParts->LastChild(), xmlPart);
-        }
-      }
-
-      save_xml(xmlThemeDoc, themeFileName);
-    }
-  }
-  catch (const std::exception& ex) {
-    setError("Error loading data file: %s\n", ex.what());
-  }
 }
 
 } // namespace app

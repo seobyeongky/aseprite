@@ -10,7 +10,10 @@
 
 #include "app/app.h"
 #include "app/commands/command.h"
+#include "app/console.h"
 #include "app/context.h"
+#include "app/extensions.h"
+#include "app/file_selector.h"
 #include "app/ini_file.h"
 #include "app/launcher.h"
 #include "app/pref/preferences.h"
@@ -21,6 +24,8 @@
 #include "base/bind.h"
 #include "base/convert_to.h"
 #include "base/fs.h"
+#include "base/string.h"
+#include "base/version.h"
 #include "doc/image.h"
 #include "render/render.h"
 #include "she/display.h"
@@ -34,6 +39,7 @@ namespace app {
 static const char* kSectionBgId = "section_bg";
 static const char* kSectionGridId = "section_grid";
 static const char* kSectionThemeId = "section_theme";
+static const char* kSectionExtensionsId = "section_extensions";
 
 using namespace ui;
 
@@ -52,8 +58,7 @@ class OptionsWindow : public app::gen::Options {
     const std::string& themeName() const { return m_name; }
 
     void openFolder() const {
-      app::launcher::open_folder(
-        m_name.empty() ? m_path: base::join_path(m_path, m_name));
+      app::launcher::open_folder(m_path);
     }
 
     bool canSelect() const {
@@ -64,32 +69,80 @@ class OptionsWindow : public app::gen::Options {
     std::string m_path;
     std::string m_name;
   };
+
+  class ExtensionItem : public ListItem {
+  public:
+    ExtensionItem(Extension* extension)
+      : ListItem(extension->displayName())
+      , m_extension(extension) {
+      setEnabled(extension->isEnabled());
+    }
+
+    Extension* extension() { return m_extension; }
+
+    bool isEnabled() const {
+      ASSERT(m_extension);
+      return m_extension->isEnabled();
+    }
+
+    bool isInstalled() const {
+      ASSERT(m_extension);
+      return m_extension->isInstalled();
+    }
+
+    bool canBeDisabled() const {
+      ASSERT(m_extension);
+      return m_extension->canBeDisabled();
+    }
+
+    bool canBeUninstalled() const {
+      ASSERT(m_extension);
+      return m_extension->canBeUninstalled();
+    }
+
+    void enable(bool state) {
+      ASSERT(m_extension);
+      App::instance()->extensions().enableExtension(m_extension, state);
+      setEnabled(m_extension->isEnabled());
+    }
+
+    void uninstall() {
+      ASSERT(m_extension);
+      ASSERT(canBeUninstalled());
+      App::instance()->extensions().uninstallExtension(m_extension);
+      m_extension = nullptr;
+    }
+
+    void openFolder() const {
+      ASSERT(m_extension);
+      app::launcher::open_folder(m_extension->path());
+    }
+
+  private:
+    Extension* m_extension;
+  };
+
 public:
   OptionsWindow(Context* context, int& curSection)
     : m_pref(Preferences::instance())
     , m_globPref(m_pref.document(nullptr))
     , m_docPref(m_pref.document(context->activeDocument()))
     , m_curPref(&m_docPref)
-    , m_checked_bg_color1(new ColorButton(app::Color::fromMask(), IMAGE_RGB, false))
-    , m_checked_bg_color2(new ColorButton(app::Color::fromMask(), IMAGE_RGB, false))
-    , m_pixelGridColor(new ColorButton(app::Color::fromMask(), IMAGE_RGB, false))
-    , m_gridColor(new ColorButton(app::Color::fromMask(), IMAGE_RGB, false))
-    , m_cursorColor(new ColorButton(m_pref.cursor.cursorColor(), IMAGE_RGB, false))
     , m_curSection(curSection)
   {
     sectionListbox()->Change.connect(base::Bind<void>(&OptionsWindow::onChangeSection, this));
 
     // Cursor
     paintingCursorType()->setSelectedItemIndex(int(m_pref.cursor.paintingCursorType()));
-    cursorColorPlaceholder()->addChild(m_cursorColor);
+    cursorColor()->setColor(m_pref.cursor.cursorColor());
 
-    if (m_cursorColor->getColor().getType() == app::Color::MaskType) {
+    if (cursorColor()->getColor().getType() == app::Color::MaskType) {
       cursorColorType()->setSelectedItemIndex(0);
-      m_cursorColor->setVisible(false);
+      cursorColor()->setVisible(false);
     }
     else {
       cursorColorType()->setSelectedItemIndex(1);
-      m_cursorColor->setVisible(true);
+      cursorColor()->setVisible(true);
     }
     cursorColorType()->Change.connect(base::Bind<void>(&OptionsWindow::onCursorColorType, this));
 
@@ -97,13 +150,12 @@ public:
     brushPreview()->setSelectedItemIndex(
       (int)m_pref.cursor.brushPreview());
 
-    // Grid color
-    m_gridColor->setId("grid_color");
-    gridColorPlaceholder()->addChild(m_gridColor);
+    // Guide colors
+    layerEdgesColor()->setColor(m_pref.guides.layerEdgesColor());
+    autoGuidesColor()->setColor(m_pref.guides.autoGuidesColor());
 
-    // Pixel grid color
-    m_pixelGridColor->setId("pixel_grid_color");
-    pixelGridColorPlaceholder()->addChild(m_pixelGridColor);
+    // Slices default color
+    defaultSliceColor()->setColor(m_pref.slices.defaultColor());
 
     // Others
     if (m_pref.general.autoshowTimeline())
@@ -139,18 +191,24 @@ public:
     if (m_pref.selection.keepSelectionAfterClear())
       keepSelectionAfterClear()->setSelected(true);
 
-#if defined(_WIN32) || defined(__APPLE__)
-    if (m_pref.cursor.useNativeCursor())
-      nativeCursor()->setSelected(true);
-    nativeCursor()->Click.connect(base::Bind<void>(&OptionsWindow::onNativeCursorChange, this));
+    if (m_pref.selection.moveEdges())
+      moveEdges()->setSelected(true);
 
-    cursorScale()->setSelectedItemIndex(
-      cursorScale()->findItemIndexByValue(
-        base::convert_to<std::string>(m_pref.cursor.cursorScale())));
-#else
-    // TODO impl this on Linux
-    nativeCursor()->setEnabled(false);
-#endif
+    // If the platform supports native cursors...
+    if ((int(she::instance()->capabilities()) &
+         int(she::Capabilities::CustomNativeMouseCursor)) != 0) {
+      if (m_pref.cursor.useNativeCursor())
+        nativeCursor()->setSelected(true);
+      nativeCursor()->Click.connect(base::Bind<void>(&OptionsWindow::onNativeCursorChange, this));
+
+      cursorScale()->setSelectedItemIndex(
+        cursorScale()->findItemIndexByValue(
+          base::convert_to<std::string>(m_pref.cursor.cursorScale())));
+    }
+    else {
+      nativeCursor()->setEnabled(false);
+    }
+
     onNativeCursorChange();
 
     if (m_pref.experimental.useNativeFileDialog())
@@ -232,10 +290,6 @@ public:
     checkedBgSize()->addItem("4x4");
     checkedBgSize()->addItem("2x2");
 
-    // Checked background colors
-    checkedBgColor1Box()->addChild(m_checked_bg_color1);
-    checkedBgColor2Box()->addChild(m_checked_bg_color2);
-
     // Reset buttons
     resetBg()->Click.connect(base::Bind<void>(&OptionsWindow::onResetBg, this));
     resetGrid()->Click.connect(base::Bind<void>(&OptionsWindow::onResetGrid, this));
@@ -258,12 +312,24 @@ public:
     selectTheme()->Click.connect(base::Bind<void>(&OptionsWindow::onSelectTheme, this));
     openThemeFolder()->Click.connect(base::Bind<void>(&OptionsWindow::onOpenThemeFolder, this));
 
+    // Extensions buttons
+    extensionsList()->Change.connect(base::Bind<void>(&OptionsWindow::onExtensionChange, this));
+    addExtension()->Click.connect(base::Bind<void>(&OptionsWindow::onAddExtension, this));
+    disableExtension()->Click.connect(base::Bind<void>(&OptionsWindow::onDisableExtension, this));
+    uninstallExtension()->Click.connect(base::Bind<void>(&OptionsWindow::onUninstallExtension, this));
+    openExtensionFolder()->Click.connect(base::Bind<void>(&OptionsWindow::onOpenExtensionFolder, this));
+
     // Apply button
     buttonApply()->Click.connect(base::Bind<void>(&OptionsWindow::saveConfig, this));
 
     onChangeBgScope();
     onChangeGridScope();
     sectionListbox()->selectIndex(m_curSection);
+
+    // Reload themes when extensions are enabled/disabled
+    m_extThemesChanges =
+      App::instance()->extensions().ThemesChange.connect(
+        base::Bind<void>(&OptionsWindow::reloadThemes, this));
   }
 
   bool ok() {
@@ -301,28 +367,32 @@ public:
 #endif
     m_pref.editor.rightClickMode(static_cast<app::gen::RightClickMode>(rightClickBehavior()->getSelectedItemIndex()));
     m_pref.cursor.paintingCursorType(static_cast<app::gen::PaintingCursorType>(paintingCursorType()->getSelectedItemIndex()));
-    m_pref.cursor.cursorColor(m_cursorColor->getColor());
+    m_pref.cursor.cursorColor(cursorColor()->getColor());
     m_pref.cursor.brushPreview(static_cast<app::gen::BrushPreview>(brushPreview()->getSelectedItemIndex()));
     m_pref.cursor.useNativeCursor(nativeCursor()->isSelected());
     m_pref.cursor.cursorScale(base::convert_to<int>(cursorScale()->getValue()));
     m_pref.selection.autoOpaque(autoOpaque()->isSelected());
     m_pref.selection.keepSelectionAfterClear(keepSelectionAfterClear()->isSelected());
+    m_pref.selection.moveEdges(moveEdges()->isSelected());
+    m_pref.guides.layerEdgesColor(layerEdgesColor()->getColor());
+    m_pref.guides.autoGuidesColor(autoGuidesColor()->getColor());
+    m_pref.slices.defaultColor(defaultSliceColor()->getColor());
 
     m_curPref->show.grid(gridVisible()->isSelected());
     m_curPref->grid.bounds(gridBounds());
-    m_curPref->grid.color(m_gridColor->getColor());
+    m_curPref->grid.color(gridColor()->getColor());
     m_curPref->grid.opacity(gridOpacity()->getValue());
     m_curPref->grid.autoOpacity(gridAutoOpacity()->isSelected());
 
     m_curPref->show.pixelGrid(pixelGridVisible()->isSelected());
-    m_curPref->pixelGrid.color(m_pixelGridColor->getColor());
+    m_curPref->pixelGrid.color(pixelGridColor()->getColor());
     m_curPref->pixelGrid.opacity(pixelGridOpacity()->getValue());
     m_curPref->pixelGrid.autoOpacity(pixelGridAutoOpacity()->isSelected());
 
     m_curPref->bg.type(app::gen::BgType(checkedBgSize()->getSelectedItemIndex()));
     m_curPref->bg.zoom(checkedBgZoom()->isSelected());
-    m_curPref->bg.color1(m_checked_bg_color1->getColor());
-    m_curPref->bg.color2(m_checked_bg_color2->getColor());
+    m_curPref->bg.color1(checkedBgColor1()->getColor());
+    m_curPref->bg.color2(checkedBgColor2()->getColor());
 
     int undo_size_limit_value;
     undo_size_limit_value = undoSizeLimit()->textInt();
@@ -382,11 +452,13 @@ public:
 
 private:
   void onNativeCursorChange() {
-#if defined(_WIN32) || defined(__APPLE__)
-    bool state = !nativeCursor()->isSelected();
-#else
-    bool state = false;
-#endif
+    bool state =
+      // If the platform supports native cursors...
+      (((int(she::instance()->capabilities()) &
+         int(she::Capabilities::CustomNativeMouseCursor)) != 0) &&
+       // If the native cursor option is not selec
+       !nativeCursor()->isSelected());
+
     cursorScaleLabel()->setEnabled(state);
     cursorScale()->setEnabled(state);
   }
@@ -406,6 +478,9 @@ private:
     // Load themes
     else if (item->getValue() == kSectionThemeId)
       loadThemes();
+    // Load extension
+    else if (item->getValue() == kSectionExtensionsId)
+      loadExtensions();
   }
 
   void onChangeBgScope() {
@@ -418,8 +493,8 @@ private:
 
     checkedBgSize()->setSelectedItemIndex(int(m_curPref->bg.type()));
     checkedBgZoom()->setSelected(m_curPref->bg.zoom());
-    m_checked_bg_color1->setColor(m_curPref->bg.color1());
-    m_checked_bg_color2->setColor(m_curPref->bg.color2());
+    checkedBgColor1()->setColor(m_curPref->bg.color1());
+    checkedBgColor2()->setColor(m_curPref->bg.color2());
   }
 
   void onChangeGridScope() {
@@ -436,12 +511,12 @@ private:
     gridW()->setTextf("%d", m_curPref->grid.bounds().w);
     gridH()->setTextf("%d", m_curPref->grid.bounds().h);
 
-    m_gridColor->setColor(m_curPref->grid.color());
+    gridColor()->setColor(m_curPref->grid.color());
     gridOpacity()->setValue(m_curPref->grid.opacity());
     gridAutoOpacity()->setSelected(m_curPref->grid.autoOpacity());
 
     pixelGridVisible()->setSelected(m_curPref->show.pixelGrid());
-    m_pixelGridColor->setColor(m_curPref->pixelGrid.color());
+    pixelGridColor()->setColor(m_curPref->pixelGrid.color());
     pixelGridOpacity()->setValue(m_curPref->pixelGrid.opacity());
     pixelGridAutoOpacity()->setSelected(m_curPref->pixelGrid.autoOpacity());
   }
@@ -453,15 +528,15 @@ private:
     if (m_curPref == &m_globPref) {
       checkedBgSize()->setSelectedItemIndex(int(pref.bg.type.defaultValue()));
       checkedBgZoom()->setSelected(pref.bg.zoom.defaultValue());
-      m_checked_bg_color1->setColor(pref.bg.color1.defaultValue());
-      m_checked_bg_color2->setColor(pref.bg.color2.defaultValue());
+      checkedBgColor1()->setColor(pref.bg.color1.defaultValue());
+      checkedBgColor2()->setColor(pref.bg.color2.defaultValue());
     }
     // Reset document preferences with global settings
     else {
       checkedBgSize()->setSelectedItemIndex(int(pref.bg.type()));
       checkedBgZoom()->setSelected(pref.bg.zoom());
-      m_checked_bg_color1->setColor(pref.bg.color1());
-      m_checked_bg_color2->setColor(pref.bg.color2());
+      checkedBgColor1()->setColor(pref.bg.color1());
+      checkedBgColor2()->setColor(pref.bg.color2());
     }
   }
 
@@ -476,12 +551,12 @@ private:
       gridW()->setTextf("%d", pref.grid.bounds.defaultValue().w);
       gridH()->setTextf("%d", pref.grid.bounds.defaultValue().h);
 
-      m_gridColor->setColor(pref.grid.color.defaultValue());
+      gridColor()->setColor(pref.grid.color.defaultValue());
       gridOpacity()->setValue(pref.grid.opacity.defaultValue());
       gridAutoOpacity()->setSelected(pref.grid.autoOpacity.defaultValue());
 
       pixelGridVisible()->setSelected(pref.show.pixelGrid.defaultValue());
-      m_pixelGridColor->setColor(pref.pixelGrid.color.defaultValue());
+      pixelGridColor()->setColor(pref.pixelGrid.color.defaultValue());
       pixelGridOpacity()->setValue(pref.pixelGrid.opacity.defaultValue());
       pixelGridAutoOpacity()->setSelected(pref.pixelGrid.autoOpacity.defaultValue());
     }
@@ -493,12 +568,12 @@ private:
       gridW()->setTextf("%d", pref.grid.bounds().w);
       gridH()->setTextf("%d", pref.grid.bounds().h);
 
-      m_gridColor->setColor(pref.grid.color());
+      gridColor()->setColor(pref.grid.color());
       gridOpacity()->setValue(pref.grid.opacity());
       gridAutoOpacity()->setSelected(pref.grid.autoOpacity());
 
       pixelGridVisible()->setSelected(pref.show.pixelGrid());
-      m_pixelGridColor->setColor(pref.pixelGrid.color());
+      pixelGridColor()->setColor(pref.pixelGrid.color());
       pixelGridOpacity()->setValue(pref.pixelGrid.opacity());
       pixelGridAutoOpacity()->setSelected(pref.pixelGrid.autoOpacity());
     }
@@ -512,15 +587,25 @@ private:
     app::launcher::open_folder(app::main_config_filename());
   }
 
+  void reloadThemes() {
+    while (themeList()->firstChild())
+      delete themeList()->lastChild();
+
+    loadThemes();
+  }
+
   void loadThemes() {
     // Themes already loaded
     if (themeList()->getItemsCount() > 0)
       return;
 
+    auto theme = skin::SkinTheme::instance();
     auto userFolder = userThemeFolder();
     auto folders = themeFolders();
     std::sort(folders.begin(), folders.end());
+    const auto& selectedPath = theme->path();
 
+    bool first = true;
     for (const auto& path : folders) {
       auto files = base::list_files(path);
 
@@ -528,17 +613,52 @@ private:
       if (files.empty() && path != userFolder)
         continue;
 
-      themeList()->addChild(new ThemeItem(path, std::string()));
       std::sort(files.begin(), files.end());
       for (auto& fn : files) {
-        if (!base::is_directory(base::join_path(path, fn)))
+        std::string fullPath =
+          base::normalize_path(
+            base::join_path(path, fn));
+        if (!base::is_directory(fullPath))
           continue;
 
-        ThemeItem* item = new ThemeItem(path, fn);
+        if (first) {
+          first = false;
+          auto sep = new Separator(base::normalize_path(path), HORIZONTAL);
+          sep->setStyle(theme->styles.separatorInView());
+          themeList()->addChild(sep);
+        }
+
+        ThemeItem* item = new ThemeItem(fullPath, fn);
         themeList()->addChild(item);
 
         // Selected theme
-        if (fn == m_pref.theme.selected())
+        if (fullPath == selectedPath)
+          themeList()->selectChild(item);
+      }
+    }
+
+    // Themes from extensions
+    first = true;
+    for (auto ext : App::instance()->extensions()) {
+      if (!ext->isEnabled())
+        continue;
+
+      if (ext->themes().empty())
+        continue;
+
+      if (first) {
+        first = false;
+        auto sep = new Separator("Extension Themes", HORIZONTAL);
+        sep->setStyle(theme->styles.separatorInView());
+        themeList()->addChild(sep);
+      }
+
+      for (auto it : ext->themes()) {
+        ThemeItem* item = new ThemeItem(it.second, it.first);
+        themeList()->addChild(item);
+
+        // Selected theme
+        if (it.second == selectedPath)
           themeList()->selectChild(item);
       }
     }
@@ -546,9 +666,24 @@ private:
     themeList()->layout();
   }
 
+  void loadExtensions() {
+    // Extensions already loaded
+    if (extensionsList()->getItemsCount() > 0)
+      return;
+
+    for (auto extension : App::instance()->extensions()) {
+      ExtensionItem* item = new ExtensionItem(extension);
+      extensionsList()->addChild(item);
+    }
+
+    onExtensionChange();
+    extensionsList()->layout();
+  }
+
   void onThemeChange() {
     ThemeItem* item = dynamic_cast<ThemeItem*>(themeList()->getSelectedChild());
     selectTheme()->setEnabled(item && item->canSelect());
+    openThemeFolder()->setEnabled(item != nullptr);
   }
 
   void onSelectTheme() {
@@ -569,15 +704,148 @@ private:
       item->openFolder();
   }
 
+  void onExtensionChange() {
+    ExtensionItem* item = dynamic_cast<ExtensionItem*>(extensionsList()->getSelectedChild());
+    if (item && item->isInstalled()) {
+      disableExtension()->setText(item->isEnabled() ? "&Disable": "&Enable");
+      disableExtension()->processMnemonicFromText();
+      disableExtension()->setEnabled(item->isEnabled() ? item->canBeDisabled(): true);
+      uninstallExtension()->setEnabled(item->canBeUninstalled());
+      openExtensionFolder()->setEnabled(true);
+    }
+    else {
+      disableExtension()->setEnabled(false);
+      uninstallExtension()->setEnabled(false);
+      openExtensionFolder()->setEnabled(false);
+    }
+  }
+
+  void onAddExtension() {
+    FileSelectorFiles filename;
+    if (!app::show_file_selector(
+          "Add Extension", "", "zip",
+          FileSelectorType::Open, filename))
+      return;
+
+    ASSERT(!filename.empty());
+
+    try {
+      Extensions& exts = App::instance()->extensions();
+
+      // Get the extension information from the compressed
+      // package.json file.
+      ExtensionInfo info = exts.getCompressedExtensionInfo(filename.front());
+
+      // Check if the extension already exist
+      for (auto ext : exts) {
+        if (base::string_to_lower(ext->name()) !=
+            base::string_to_lower(info.name))
+          continue;
+
+        bool isDowngrade =
+          base::Version(info.version.c_str()) <
+          base::Version(ext->version().c_str());
+
+        // Uninstall?
+        if (ui::Alert::show(
+              "Update Extension"
+              "<<The extension '%s' already exists."
+              "<<Do you want to %s from v%s to v%s?"
+              "||&Yes||&No",
+              ext->name().c_str(),
+              (isDowngrade ? "downgrade": "upgrade"),
+              ext->version().c_str(),
+              info.version.c_str()) != 1)
+          return;
+
+        // Uninstall old version
+        if (ext->canBeUninstalled()) {
+          exts.uninstallExtension(ext);
+
+          ExtensionItem* item = getItemByExtension(ext);
+          if (item)
+            deleteExtensionItem(item);
+        }
+        break;
+      }
+
+      Extension* ext =
+        exts.installCompressedExtension(filename.front(), info);
+
+      // Enable extension
+      exts.enableExtension(ext, true);
+
+      // Add the new extension in the listbox
+      ExtensionItem* item = new ExtensionItem(ext);
+      extensionsList()->addChild(item);
+      extensionsList()->selectChild(item);
+      extensionsList()->layout();
+    }
+    catch (std::exception& ex) {
+      Console::showException(ex);
+    }
+  }
+
+  void onDisableExtension() {
+    ExtensionItem* item = dynamic_cast<ExtensionItem*>(extensionsList()->getSelectedChild());
+    if (item) {
+      item->enable(!item->isEnabled());
+      onExtensionChange();
+    }
+  }
+
+  void onUninstallExtension() {
+    ExtensionItem* item = dynamic_cast<ExtensionItem*>(extensionsList()->getSelectedChild());
+    if (!item)
+      return;
+
+    if (ui::Alert::show(
+          "Warning"
+          "<<Do you really want to uninstall '%s' extension?"
+          "||&Yes||&No",
+          item->text().c_str()) != 1)
+      return;
+
+    try {
+      item->uninstall();
+      deleteExtensionItem(item);
+    }
+    catch (std::exception& ex) {
+      Console::showException(ex);
+    }
+  }
+
+  void deleteExtensionItem(ExtensionItem* item) {
+    // Remove the item from the list
+    extensionsList()->removeChild(item);
+    extensionsList()->layout();
+    item->deferDelete();
+  }
+
+  ExtensionItem* getItemByExtension(Extension* ext) {
+    for (auto child : extensionsList()->children()) {
+      ExtensionItem* item = dynamic_cast<ExtensionItem*>(child);
+      if (item && item->extension() == ext)
+        return item;
+    }
+    return nullptr;
+  }
+
+  void onOpenExtensionFolder() {
+    ExtensionItem* item = dynamic_cast<ExtensionItem*>(extensionsList()->getSelectedChild());
+    if (item)
+      item->openFolder();
+  }
+
   void onCursorColorType() {
     switch (cursorColorType()->getSelectedItemIndex()) {
       case 0:
-        m_cursorColor->setColor(app::Color::fromMask());
-        m_cursorColor->setVisible(false);
+        cursorColor()->setColor(app::Color::fromMask());
+        cursorColor()->setVisible(false);
         break;
       case 1:
-        m_cursorColor->setColor(app::Color::fromRgb(0, 0, 0, 255));
-        m_cursorColor->setVisible(true);
+        cursorColor()->setColor(app::Color::fromRgb(0, 0, 0, 255));
+        cursorColor()->setVisible(true);
         break;
     }
     layout();
@@ -592,7 +860,7 @@ private:
     ResourceFinder rf;
     rf.includeDataDir(skin::SkinTheme::kThemesFolderName);
 
-    // Create user folder to store skins
+#if 0 // Don't create the user folder to store themes because now we prefer extensions
     try {
       if (!base::is_directory(rf.defaultFilename()))
         base::make_all_directories(rf.defaultFilename());
@@ -600,6 +868,7 @@ private:
     catch (...) {
       // Ignore errors
     }
+#endif
 
     return base::normalize_path(rf.defaultFilename());
   }
@@ -618,12 +887,8 @@ private:
   DocumentPreferences& m_globPref;
   DocumentPreferences& m_docPref;
   DocumentPreferences* m_curPref;
-  ColorButton* m_checked_bg_color1;
-  ColorButton* m_checked_bg_color2;
-  ColorButton* m_pixelGridColor;
-  ColorButton* m_gridColor;
-  ColorButton* m_cursorColor;
   int& m_curSection;
+  obs::scoped_connection m_extThemesChanges;
 };
 
 class OptionsCommand : public Command {

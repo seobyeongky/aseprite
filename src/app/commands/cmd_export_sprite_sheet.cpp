@@ -22,7 +22,7 @@
 #include "app/ui/editor/editor.h"
 #include "app/ui/layer_frame_comboboxes.h"
 #include "app/ui/status_bar.h"
-#include "app/ui/timeline.h"
+#include "app/ui/timeline/timeline.h"
 #include "base/bind.h"
 #include "base/convert_to.h"
 #include "base/fs.h"
@@ -448,12 +448,15 @@ private:
   void onImageFilename() {
     std::string exts = get_writable_extensions();
 
-    std::string newFilename = app::show_file_selector(
-      "Save Sprite Sheet", m_filename, exts, FileSelectorType::Save);
-    if (newFilename.empty())
+    FileSelectorFiles newFilename;
+    if (!app::show_file_selector(
+          "Save Sprite Sheet", m_filename, exts,
+          FileSelectorType::Save, newFilename))
       return;
 
-    m_filename = newFilename;
+    ASSERT(!newFilename.empty());
+
+    m_filename = newFilename.front();
     m_filenameAskOverwrite = false; // Already asked in file selector
     onFileNamesChange();
   }
@@ -468,12 +471,15 @@ private:
 
   void onDataFilename() {
     // TODO hardcoded "json" extension
-    std::string newFilename = app::show_file_selector(
-      "Save JSON Data", m_dataFilename, "json", FileSelectorType::Save);
-    if (newFilename.empty())
+    FileSelectorFiles newFilename;
+    if (!app::show_file_selector(
+          "Save JSON Data", m_dataFilename, "json",
+          FileSelectorType::Save, newFilename))
       return;
 
-    m_dataFilename = newFilename;
+    ASSERT(!newFilename.empty());
+
+    m_dataFilename = newFilename.front();
     m_dataFilenameAskOverwrite = false; // Already asked in file selector
     onFileNamesChange();
   }
@@ -672,6 +678,7 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
   innerPadding = MID(0, innerPadding, 100);
   bool listLayers = docPref.spriteSheet.listLayers();
   bool listFrameTags = docPref.spriteSheet.listFrameTags();
+  bool listSlices = docPref.spriteSheet.listSlices();
 
   if (context->isUIAvailable() && askOverwrite) {
     if (!ask_overwrite(true, filename,
@@ -749,10 +756,9 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
   exporter.setBorderPadding(borderPadding);
   exporter.setShapePadding(shapePadding);
   exporter.setInnerPadding(innerPadding);
-  if (listLayers)
-    exporter.setListLayers(true);
-  if (listFrameTags)
-    exporter.setListFrameTags(true);
+  if (listLayers) exporter.setListLayers(true);
+  if (listFrameTags) exporter.setListFrameTags(true);
+  if (listSlices) exporter.setListSlices(true);
   exporter.addDocument(document, frameTag,
                        (!selLayers.empty() ? &selLayers: nullptr),
                        (!selFrames.empty() ? &selFrames: nullptr));

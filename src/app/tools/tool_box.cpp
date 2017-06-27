@@ -55,6 +55,7 @@ const char* WellKnownInks::PaintBg = "paint_bg";
 const char* WellKnownInks::PaintCopy = "paint_copy";
 const char* WellKnownInks::PaintLockAlpha = "paint_lock_alpha";
 const char* WellKnownInks::Shading = "shading";
+const char* WellKnownInks::Gradient = "gradient";
 const char* WellKnownInks::Eraser = "eraser";
 const char* WellKnownInks::ReplaceFgWithBg = "replace_fg_with_bg";
 const char* WellKnownInks::ReplaceBgWithFg = "replace_bg_with_fg";
@@ -68,7 +69,15 @@ const char* WellKnownInks::MoveSlice = "move_slice";
 const char* WellKnownInks::Blur = "blur";
 const char* WellKnownInks::Jumble = "jumble";
 
+const char* WellKnownControllers::Freehand = "freehand";
+const char* WellKnownControllers::PointByPoint = "point_by_point";
+const char* WellKnownControllers::OnePoints = "one_point";
+const char* WellKnownControllers::TwoPoints = "two_points";
+const char* WellKnownControllers::FourPoints = "four_points";
+const char* WellKnownControllers::LineFreehand = "line_freehand";
+
 const char* WellKnownIntertwiners::None = "none";
+const char* WellKnownIntertwiners::FirstPoint = "first_point";
 const char* WellKnownIntertwiners::AsLines = "as_lines";
 const char* WellKnownIntertwiners::AsRectangles = "as_rectangles";
 const char* WellKnownIntertwiners::AsEllipses = "as_ellipses";
@@ -89,6 +98,7 @@ ToolBox::ToolBox()
   m_inks[WellKnownInks::PaintBg]         = new PaintInk(PaintInk::WithBg);
   m_inks[WellKnownInks::PaintCopy]       = new PaintInk(PaintInk::Copy);
   m_inks[WellKnownInks::PaintLockAlpha]  = new PaintInk(PaintInk::LockAlpha);
+  m_inks[WellKnownInks::Gradient]        = new GradientInk();
   m_inks[WellKnownInks::Shading]         = new ShadingInk();
   m_inks[WellKnownInks::Eraser]          = new EraserInk(EraserInk::Eraser);
   m_inks[WellKnownInks::ReplaceFgWithBg] = new EraserInk(EraserInk::ReplaceFgWithBg);
@@ -99,15 +109,15 @@ ToolBox::ToolBox()
   m_inks[WellKnownInks::Scroll]          = new ScrollInk();
   m_inks[WellKnownInks::Move]            = new MoveInk();
   m_inks[WellKnownInks::Slice]           = new SliceInk();
-  m_inks[WellKnownInks::MoveSlice]       = new MoveSliceInk();
   m_inks[WellKnownInks::Blur]            = new BlurInk();
   m_inks[WellKnownInks::Jumble]          = new JumbleInk();
 
-  m_controllers["freehand"]              = new FreehandController();
-  m_controllers["point_by_point"]        = new PointByPointController();
-  m_controllers["one_point"]             = new OnePointController();
-  m_controllers["two_points"]            = new TwoPointsController();
-  m_controllers["four_points"]           = new FourPointsController();
+  m_controllers[WellKnownControllers::Freehand] = new FreehandController();
+  m_controllers[WellKnownControllers::PointByPoint] = new PointByPointController();
+  m_controllers[WellKnownControllers::OnePoints] = new OnePointController();
+  m_controllers[WellKnownControllers::TwoPoints] = new TwoPointsController();
+  m_controllers[WellKnownControllers::FourPoints] = new FourPointsController();
+  m_controllers[WellKnownControllers::LineFreehand] = new LineFreehandController();
 
   m_pointshapers[WellKnownPointShapes::None] = new NonePointShape();
   m_pointshapers[WellKnownPointShapes::Pixel] = new PixelPointShape();
@@ -116,6 +126,7 @@ ToolBox::ToolBox()
   m_pointshapers[WellKnownPointShapes::Spray] = new SprayPointShape();
 
   m_intertwiners[WellKnownIntertwiners::None] = new IntertwineNone();
+  m_intertwiners[WellKnownIntertwiners::FirstPoint] = new IntertwineFirstPoint();
   m_intertwiners[WellKnownIntertwiners::AsLines] = new IntertwineAsLines();
   m_intertwiners[WellKnownIntertwiners::AsRectangles] = new IntertwineAsRectangles();
   m_intertwiners[WellKnownIntertwiners::AsEllipses] = new IntertwineAsEllipses();
@@ -156,6 +167,11 @@ Tool* ToolBox::getToolById(const std::string& id)
 Ink* ToolBox::getInkById(const std::string& id)
 {
   return m_inks[id];
+}
+
+Controller* ToolBox::getControllerById(const std::string& id)
+{
+  return m_controllers[id];
 }
 
 Intertwine* ToolBox::getIntertwinerById(const std::string& id)

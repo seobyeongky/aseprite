@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,6 +10,7 @@
 
 #include "app/color.h"
 #include "app/ui/button_set.h"
+#include "app/ui/color_button_options.h"
 #include "app/ui/color_sliders.h"
 #include "app/ui/hex_color_entry.h"
 #include "app/ui/palette_view.h"
@@ -18,6 +19,7 @@
 #include "obs/signal.h"
 #include "ui/grid.h"
 #include "ui/label.h"
+#include "ui/tooltips.h"
 #include "ui/view.h"
 
 namespace app {
@@ -28,10 +30,10 @@ namespace app {
   public:
     enum SetColorOptions {
       ChangeType,
-      DoNotChangeType
+      DontChangeType
     };
 
-    ColorPopup(bool canPin);
+    ColorPopup(const ColorButtonOptions& options);
     ~ColorPopup();
 
     void setColor(const app::Color& color, SetColorOptions options);
@@ -41,10 +43,13 @@ namespace app {
     obs::signal<void(const app::Color&)> ColorChange;
 
   protected:
+    bool onProcessMessage(ui::Message* msg) override;
+    void onWindowResize() override;
     void onMakeFloating() override;
     void onMakeFixed() override;
     void onColorSlidersChange(ColorSlidersChangeEvent& ev);
     void onColorHexEntryChange(const app::Color& color);
+    void onSimpleColorClick();
     void onColorTypeClick();
     void onPaletteChange();
 
@@ -56,16 +61,26 @@ namespace app {
     void setColorWithSignal(const app::Color& color);
     void findBestfitIndex(const app::Color& color);
 
+    class SimpleColors;
+    class CustomButtonSet : public ButtonSet {
+    public:
+      CustomButtonSet();
+      int countSelectedItems();
+    private:
+      void onSelectItem(Item* item, bool focusItem, ui::Message* msg) override;
+    };
+
     ui::Box m_vbox;
+    ui::TooltipManager m_tooltips;
     ui::Box m_topBox;
     app::Color m_color;
-    ui::View m_colorPaletteContainer;
-    PaletteView m_colorPalette;
-    ButtonSet m_colorType;
+    Widget* m_closeButton;
+    ui::View* m_colorPaletteContainer;
+    PaletteView* m_colorPalette;
+    SimpleColors* m_simpleColors;
+    CustomButtonSet m_colorType;
     HexColorEntry m_hexColorEntry;
-    RgbSliders m_rgbSliders;
-    HsvSliders m_hsvSliders;
-    GraySlider m_graySlider;
+    ColorSliders m_sliders;
     ui::Label m_maskLabel;
     obs::scoped_connection m_onPaletteChangeConn;
     bool m_canPin;

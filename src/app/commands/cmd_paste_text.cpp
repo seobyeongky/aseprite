@@ -25,6 +25,7 @@
 #include "base/unique_ptr.h"
 #include "doc/image.h"
 #include "doc/image_ref.h"
+#include "render/ordered_dither.h"
 #include "render/quantization.h"
 
 #include "paste_text.xml.h"
@@ -90,16 +91,16 @@ private:
   }
 
   void onSelectFontFile() {
-    std::string face = show_file_selector(
-      "Select a TrueType Font",
-      m_face,
-      "ttf,ttc,otf,dfont",
-      FileSelectorType::Open,
-      nullptr);
+    FileSelectorFiles face;
+    if (!show_file_selector(
+          "Select a TrueType Font",
+          m_face,
+          "ttf,ttc,otf,dfont",
+          FileSelectorType::Open, face))
+      return;
 
-    if (!face.empty()) {
-      setFontFace(face);
-    }
+    ASSERT(!face.empty());
+    setFontFace(face.front());
   }
 
   void setFontFace(const std::string& face) {
@@ -184,7 +185,9 @@ void PasteTextCommand::onExecute(Context* ctx)
         image.reset(
           render::convert_pixel_format(
             image.get(), NULL, sprite->pixelFormat(),
-            DitheringMethod::NONE, rgbmap, sprite->palette(editor->frame()),
+            render::DitheringAlgorithm::None,
+            render::DitheringMatrix(),
+            rgbmap, sprite->palette(editor->frame()),
             false, 0));
       }
 

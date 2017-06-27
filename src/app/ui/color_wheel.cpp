@@ -16,7 +16,6 @@
 #include "app/ui/status_bar.h"
 #include "base/bind.h"
 #include "base/pi.h"
-#include "base/scoped_value.h"
 #include "filters/color_curve.h"
 #include "she/surface.h"
 #include "ui/graphics.h"
@@ -56,7 +55,6 @@ ColorWheel::ColorWheel()
   , m_harmonyPicked(false)
 {
   SkinTheme* theme = SkinTheme::instance();
-  setBorder(gfx::Border(3*ui::guiscale()));
 
   m_options.Click.connect(base::Bind<void>(&ColorWheel::onOptions, this));
   m_options.setStyle(theme->styles.colorWheelOptions());
@@ -64,17 +62,13 @@ ColorWheel::ColorWheel()
   addChild(&m_options);
 }
 
-app::Color ColorWheel::getColorByPosition(const gfx::Point& mousePos)
-{
-  return getColorInClientPos(mousePos - bounds().origin());
-}
-
-app::Color ColorWheel::getColorInClientPos(const gfx::Point& pos)
+app::Color ColorWheel::getMainAreaColor(const int _u, const int umax,
+                                        const int _v, const int vmax)
 {
   m_harmonyPicked = false;
 
-  int u = (pos.x - (m_wheelBounds.x+m_wheelBounds.w/2));
-  int v = (pos.y - (m_wheelBounds.y+m_wheelBounds.h/2));
+  int u = _u - umax/2;
+  int v = _v - vmax/2;
   double d = std::sqrt(u*u + v*v);
 
   // Pick from the wheel
@@ -105,33 +99,130 @@ app::Color ColorWheel::getColorInClientPos(const gfx::Point& pos)
 
     return app::Color::fromHsv(
       MID(0, hue, 360),
-      MID(0, sat, 100),
-      100);
+      MID(0, sat / 100.0, 1.0),
+      m_color.getHsvValue(),
+      m_color.getAlpha());
   }
 
   // Pick harmonies
   if (m_color.getAlpha() > 0) {
-    const gfx::Rect& rc = m_clientBounds;
+    const gfx::Point pos(_u, _v);
     int n = getHarmonies();
-    int boxsize = MIN(rc.w/10, rc.h/10);
+    int boxsize = MIN(umax/10, vmax/10);
 
     for (int i=0; i<n; ++i) {
       app::Color color = getColorInHarmony(i);
 
-      if (gfx::Rect(rc.x+rc.w-(n-i)*boxsize,
-                    rc.y+rc.h-boxsize,
+      if (gfx::Rect(umax-(n-i)*boxsize,
+                    vmax-boxsize,
                     boxsize, boxsize).contains(pos)) {
         m_harmonyPicked = true;
 
-        color = app::Color::fromHsv(convertHueAngle(int(color.getHue()), 1),
-                                    color.getSaturation(),
-                                    color.getValue());
+        color = app::Color::fromHsv(convertHueAngle(int(color.getHsvHue()), 1),
+                                    color.getHsvSaturation(),
+                                    color.getHsvValue(),
+                                    m_color.getAlpha());
         return color;
       }
     }
   }
 
   return app::Color::fromMask();
+}
+
+app::Color ColorWheel::getBottomBarColor(const int u, const int umax)
+{
+  double val = double(u) / double(umax);
+  return app::Color::fromHsv(
+    m_color.getHsvHue(),
+    m_color.getHsvSaturation(),
+    MID(0.0, val, 1.0),
+    m_color.getAlpha());
+}
+
+void ColorWheel::onPaintMainArea(ui::Graphics* g, const gfx::Rect& rc)
+{
+  bool oldHarmonyPicked = m_harmonyPicked;
+  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+
+  int r = MIN(rc.w/2, rc.h/2);
+  m_wheelRadius = r;
+  m_wheelBounds = gfx::Rect(rc.x+rc.w/2-r,
+                            rc.y+rc.h/2-r,
+                            r*2, r*2);
+
+  int umax = MAX(1, rc.w-1);
+  int vmax = MAX(1, rc.h-1);
+
+  for (int y=0; y<rc.h; ++y) {
+    for (int x=0; x<rc.w; ++x) {
+      app::Color appColor =
+        getMainAreaColor(x, umax,
+                         y, vmax);
+
+      gfx::Color color;
+      if (appColor.getType() != app::Color::MaskType) {
+        appColor.setAlpha(255);
+        color = color_utils::color_for_ui(appColor);
+      }
+      else {
+        color = theme->colors.editorFace();
+      }
+
+      g->putPixel(color, rc.x+x, rc.y+y);
+    }
+  }
+
+  if (m_color.getAlpha() > 0) {
+    int n = getHarmonies();
+    int boxsize = MIN(rc.w/10, rc.h/10);
+
+    for (int i=0; i<n; ++i) {
+      app::Color color = getColorInHarmony(i);
+      double angle = color.getHsvHue()-30.0;
+      double dist = color.getHsvSaturation();
+
+      color = app::Color::fromHsv(convertHueAngle(int(color.getHsvHue()), 1),
+                                  color.getHsvSaturation(),
+                                  color.getHsvValue());
+
+      gfx::Point pos =
+        m_wheelBounds.center() +
+        gfx::Point(int(+std::cos(PI*angle/180.0)*double(m_wheelRadius)*dist),
+                   int(-std::sin(PI*angle/180.0)*double(m_wheelRadius)*dist));
+
+      paintColorIndicator(g, pos, color.getHsvValue() < 0.5);
+
+      g->fillRect(gfx::rgba(color.getRed(),
+                            color.getGreen(),
+                            color.getBlue(), 255),
+                  gfx::Rect(rc.x+rc.w-(n-i)*boxsize,
+                            rc.y+rc.h-boxsize,
+                            boxsize, boxsize));
+    }
+  }
+
+  m_harmonyPicked = oldHarmonyPicked;
+}
+
+void ColorWheel::onPaintBottomBar(ui::Graphics* g, const gfx::Rect& rc)
+{
+  double hue = m_color.getHsvHue();
+  double sat = m_color.getHsvSaturation();
+
+  for (int x=0; x<rc.w; ++x) {
+    gfx::Color color = color_utils::color_for_ui(
+      app::Color::fromHsv(hue, sat, double(x) / double(rc.w)));
+
+    g->drawVLine(color, rc.x+x, rc.y, rc.h);
+  }
+
+  if (m_color.getType() != app::Color::MaskType) {
+    double val = m_color.getHsvValue();
+    gfx::Point pos(rc.x + int(double(rc.w) * val),
+                   rc.y + rc.h/2);
+    paintColorIndicator(g, pos, val < 0.5);
+  }
 }
 
 void ColorWheel::setDiscrete(bool state)
@@ -168,11 +259,11 @@ app::Color ColorWheel::getColorInHarmony(int j) const
 {
   int i = MID(0, (int)m_harmony, (int)Harmony::LAST);
   j = MID(0, j, harmonies[i].n-1);
-  double hue = convertHueAngle(int(m_color.getHue()), -1) + harmonies[i].hues[j];
-  double sat = m_color.getSaturation() * harmonies[i].sats[j] / 100.0;
+  double hue = convertHueAngle(int(m_color.getHsvHue()), -1) + harmonies[i].hues[j];
+  double sat = m_color.getHsvSaturation() * harmonies[i].sats[j] / 100.0;
   return app::Color::fromHsv(std::fmod(hue, 360),
-                             MID(0.0, sat, 100.0),
-                             m_color.getValue());
+                             MID(0.0, sat, 1.0),
+                             m_color.getHsvValue());
 }
 
 void ColorWheel::onResize(ui::ResizeEvent& ev)
@@ -180,130 +271,12 @@ void ColorWheel::onResize(ui::ResizeEvent& ev)
   ColorSelector::onResize(ev);
 
   gfx::Rect rc = clientChildrenBounds();
-  int r = MIN(rc.w/2, rc.h/2);
-
-  m_clientBounds = rc;
-  m_wheelRadius = r;
-  m_wheelBounds = gfx::Rect(rc.x+rc.w/2-r,
-                            rc.y+rc.h/2-r,
-                            r*2, r*2);
-
   gfx::Size prefSize = m_options.sizeHint();
   rc = childrenBounds();
   rc.x += rc.w-prefSize.w;
   rc.w = prefSize.w;
   rc.h = prefSize.h;
   m_options.setBounds(rc);
-}
-
-void ColorWheel::onPaint(ui::PaintEvent& ev)
-{
-  ui::Graphics* g = ev.graphics();
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-
-  theme->drawRect(g, clientBounds(),
-                  theme->parts.editorNormal().get(),
-                  false);       // Do not fill the center
-
-  const gfx::Rect& rc = m_clientBounds;
-
-  for (int y=rc.y; y<rc.y+rc.h; ++y) {
-    for (int x=rc.x; x<rc.x+rc.w; ++x) {
-      app::Color appColor =
-        ColorWheel::getColorInClientPos(gfx::Point(x, y));
-
-      gfx::Color color;
-      if (appColor.getType() != app::Color::MaskType) {
-        color = color_utils::color_for_ui(appColor);
-      }
-      else {
-        color = theme->colors.editorFace();
-      }
-
-      g->putPixel(color, x, y);
-    }
-  }
-
-  if (m_color.getAlpha() > 0) {
-    int n = getHarmonies();
-    int boxsize = MIN(rc.w/10, rc.h/10);
-
-    for (int i=0; i<n; ++i) {
-      app::Color color = getColorInHarmony(i);
-      double angle = color.getHue()-30.0;
-      double dist = color.getSaturation();
-
-      color = app::Color::fromHsv(convertHueAngle(int(color.getHue()), 1),
-                                  color.getSaturation(),
-                                  color.getValue());
-
-      gfx::Point pos =
-        m_wheelBounds.center() +
-        gfx::Point(int(+std::cos(PI*angle/180.0)*double(m_wheelRadius)*dist/100.0),
-                   int(-std::sin(PI*angle/180.0)*double(m_wheelRadius)*dist/100.0));
-
-      she::Surface* icon = theme->parts.colorWheelIndicator()->bitmap(0);
-      g->drawRgbaSurface(icon,
-                         pos.x-icon->width()/2,
-                         pos.y-icon->height()/2);
-
-      g->fillRect(gfx::rgba(color.getRed(),
-                            color.getGreen(),
-                            color.getBlue(), 255),
-                  gfx::Rect(rc.x+rc.w-(n-i)*boxsize,
-                            rc.y+rc.h-boxsize,
-                            boxsize, boxsize));
-    }
-  }
-}
-
-bool ColorWheel::onProcessMessage(ui::Message* msg)
-{
-  switch (msg->type()) {
-
-    case kMouseDownMessage:
-      captureMouse();
-      // Continue...
-
-    case kMouseMoveMessage: {
-      MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
-
-      app::Color color = getColorInClientPos(
-        mouseMsg->position()
-        - bounds().origin());
-
-      if (color != app::Color::fromMask()) {
-        base::ScopedValue<bool> switcher(m_lockColor, m_harmonyPicked, false);
-
-        StatusBar::instance()->showColor(0, "", color);
-        if (hasCapture())
-          ColorChange(color, mouseMsg->buttons());
-      }
-      break;
-    }
-
-    case kMouseUpMessage:
-      if (hasCapture()) {
-        releaseMouse();
-      }
-      return true;
-
-    case kSetCursorMessage: {
-      MouseMessage* mouseMsg = static_cast<MouseMessage*>(msg);
-      app::Color color = getColorInClientPos(
-        mouseMsg->position()
-        - bounds().origin());
-
-      if (color.getType() != app::Color::MaskType) {
-        ui::set_mouse_cursor(kEyedropperCursor);
-        return true;
-      }
-      break;
-    }
-
-  }
-
-  return ColorSelector::onProcessMessage(msg);
 }
 
 void ColorWheel::onOptions()

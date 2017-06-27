@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -18,7 +18,6 @@
 #include "app/cmd/clear_image.h"
 #include "app/cmd/copy_cel.h"
 #include "app/cmd/copy_frame.h"
-#include "app/cmd/flatten_layers.h"
 #include "app/cmd/flip_image.h"
 #include "app/cmd/layer_from_background.h"
 #include "app/cmd/move_cel.h"
@@ -38,7 +37,7 @@
 #include "app/cmd/set_mask.h"
 #include "app/cmd/set_mask_position.h"
 #include "app/cmd/set_palette.h"
-#include "app/cmd/set_pixel_format.h"
+#include "app/cmd/set_slice_key.h"
 #include "app/cmd/set_sprite_size.h"
 #include "app/cmd/set_total_frames.h"
 #include "app/cmd/set_transparent_color.h"
@@ -55,7 +54,8 @@
 #include "doc/frame_tag.h"
 #include "doc/frame_tags.h"
 #include "doc/mask.h"
-#include "render/quantization.h"
+#include "doc/palette.h"
+#include "doc/slice.h"
 #include "render/render.h"
 
 #include <set>
@@ -129,9 +129,31 @@ void DocumentApi::cropSprite(Sprite* sprite, const gfx::Rect& bounds)
     }
   }
 
+  // Update mask position
   if (!m_document->mask()->isEmpty())
     setMaskPosition(m_document->mask()->bounds().x-bounds.x,
                     m_document->mask()->bounds().y-bounds.y);
+
+  // Update slice positions
+  if (bounds.origin() != gfx::Point(0, 0)) {
+    for (auto& slice : m_document->sprite()->slices()) {
+      for (auto& k : *slice) {
+        const SliceKey& key = *k.value();
+        if (key.isEmpty())
+          continue;
+
+        SliceKey newKey = key;
+        newKey.setBounds(
+          gfx::Rect(newKey.bounds()).offset(-bounds.origin()));
+
+        // As SliceKey::center() and pivot() properties are relative
+        // to the bounds(), we don't need to adjust them.
+
+        m_transaction.execute(
+          new cmd::SetSliceKey(slice, k.frame(), newKey));
+      }
+    }
+  }
 }
 
 void DocumentApi::trimSprite(Sprite* sprite)
@@ -156,14 +178,6 @@ void DocumentApi::trimSprite(Sprite* sprite)
 
   if (!bounds.isEmpty())
     cropSprite(sprite, bounds);
-}
-
-void DocumentApi::setPixelFormat(Sprite* sprite, PixelFormat newFormat, DitheringMethod dithering)
-{
-  if (sprite->pixelFormat() == newFormat)
-    return;
-
-  m_transaction.execute(new cmd::SetPixelFormat(sprite, newFormat, dithering));
 }
 
 void DocumentApi::addFrame(Sprite* sprite, frame_t newFrame)
@@ -476,11 +490,6 @@ void DocumentApi::backgroundFromLayer(Layer* layer)
 void DocumentApi::layerFromBackground(Layer* layer)
 {
   m_transaction.execute(new cmd::LayerFromBackground(layer));
-}
-
-void DocumentApi::flattenLayers(Sprite* sprite)
-{
-  m_transaction.execute(new cmd::FlattenLayers(sprite));
 }
 
 Layer* DocumentApi::duplicateLayerAfter(Layer* sourceLayer, LayerGroup* parent, Layer* afterLayer)
