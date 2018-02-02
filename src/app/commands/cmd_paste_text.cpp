@@ -45,15 +45,14 @@ protected:
 };
 
 PasteTextCommand::PasteTextCommand()
-  : Command("PasteText",
-            "Insert Text",
-            CmdUIOnlyFlag)
+  : Command(CommandId::PasteText(), CmdUIOnlyFlag)
 {
 }
 
 bool PasteTextCommand::onEnabled(Context* ctx)
 {
-  return ctx->checkFlags(ContextFlags::ActiveDocumentIsWritable);
+  return ctx->checkFlags(ContextFlags::ActiveDocumentIsWritable |
+                         ContextFlags::ActiveLayerIsEditable);
 }
 
 class PasteTextWindow : public app::gen::PasteText {
@@ -195,9 +194,7 @@ void PasteTextCommand::onExecute(Context* ctx)
     }
   }
   catch (const std::exception& ex) {
-    ui::Alert::show(PACKAGE
-                    "<<%s"
-                    "||&OK", ex.what());
+    Console::showException(ex);
   }
 }
 

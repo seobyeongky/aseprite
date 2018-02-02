@@ -9,6 +9,7 @@
 #pragma once
 
 #include "app/commands/params.h"
+#include "app/ui/key_context.h"
 #include "base/convert_to.h"
 #include "base/disable_copying.h"
 #include "obs/signal.h"
@@ -30,18 +31,6 @@ namespace app {
   namespace tools {
     class Tool;
   }
-
-  enum class KeyContext {
-    Any,
-    Normal,
-    SelectionTool,
-    TranslatingSelection,
-    ScalingSelection,
-    RotatingSelection,
-    MoveTool,
-    FreehandTool,
-    ShapeTool,
-  };
 
   enum class KeySource {
     Original,
@@ -159,7 +148,9 @@ namespace app {
     Key* quicktool(tools::Tool* tool);
     Key* action(KeyAction action);
 
-    void disableAccel(const ui::Accelerator& accel, KeyContext keyContext);
+    void disableAccel(const ui::Accelerator& accel,
+                      const KeyContext keyContext,
+                      const Key* newKey);
 
     KeyContext getCurrentKeyContext();
     bool getCommandFromKeyMessage(ui::Message* msg, Command** command, Params* params);
@@ -196,6 +187,9 @@ namespace app {
     return key_tooltip(
       str, KeyboardShortcuts::instance()->action(keyAction));
   }
+
+  std::string convertKeyContextToString(KeyContext keyContext);
+  std::string convertKeyContextToUserFriendlyString(KeyContext keyContext);
 
 } // namespace app
 

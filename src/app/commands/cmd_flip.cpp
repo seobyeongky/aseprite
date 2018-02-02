@@ -20,8 +20,10 @@
 #include "app/context_access.h"
 #include "app/document_api.h"
 #include "app/document_range.h"
+#include "app/i18n/strings.h"
 #include "app/modules/gui.h"
 #include "app/transaction.h"
+#include "app/ui/status_bar.h"
 #include "app/ui/timeline/timeline.h"
 #include "app/util/expand_cel_canvas.h"
 #include "app/util/range_utils.h"
@@ -32,14 +34,13 @@
 #include "doc/layer.h"
 #include "doc/mask.h"
 #include "doc/sprite.h"
+#include "fmt/format.h"
 #include "gfx/size.h"
 
 namespace app {
 
 FlipCommand::FlipCommand()
-  : Command("Flip",
-            "Flip",
-            CmdRecordableFlag)
+  : Command(CommandId::Flip(), CmdRecordableFlag)
 {
   m_flipMask = false;
   m_flipType = doc::algorithm::FlipHorizontal;
@@ -67,24 +68,31 @@ void FlipCommand::onExecute(Context* context)
   Sprite* sprite = writer.sprite();
 
   {
-    Transaction transaction(writer.context(),
-      m_flipMask ?
-      (m_flipType == doc::algorithm::FlipHorizontal ?
-        "Flip Horizontal":
-        "Flip Vertical"):
-      (m_flipType == doc::algorithm::FlipHorizontal ?
-        "Flip Canvas Horizontal":
-        "Flip Canvas Vertical"));
+    Transaction transaction(writer.context(), friendlyName());
     DocumentApi api = document->getApi(transaction);
+
+    Timeline* timeline = App::instance()->timeline();
+    LockTimelineRange lockRange(timeline);
 
     CelList cels;
     if (m_flipMask) {
-      auto range = App::instance()->timeline()->range();
-      if (range.enabled())
-        cels = get_unique_cels(sprite, range);
-      else if (writer.cel())
+      auto range = timeline->range();
+      if (range.enabled()) {
+        cels = get_unlocked_unique_cels(sprite, range);
+      }
+      else if (writer.cel() &&
+               writer.layer() &&
+               writer.layer()->isEditable()) {
         cels.push_back(writer.cel());
+      }
+
+      if (cels.empty()) {
+        StatusBar::instance()->showTip(
+          1000, Strings::statusbar_tips_all_layers_are_locked().c_str());
+        return;
+      }
     }
+    // Flip the whole sprite (even locked layers)
     else {
       for (Cel* cel : sprite->uniqueCels())
         cels.push_back(cel);
@@ -210,19 +218,20 @@ void FlipCommand::onExecute(Context* context)
 
 std::string FlipCommand::onGetFriendlyName() const
 {
-  std::string text = "Flip";
+  std::string content;
+  std::string orientation;
 
   if (m_flipMask)
-    text += " Selection";
+    content = Strings::commands_Flip_Selection();
   else
-    text += " Canvas";
+    content = Strings::commands_Flip_Canvas();
 
   if (m_flipType == doc::algorithm::FlipHorizontal)
-    text += " Horizontal";
+    content = Strings::commands_Flip_Horizontally();
   else
-    text += " Vertical";
+    content = Strings::commands_Flip_Vertically();
 
-  return text;
+  return fmt::format(getBaseFriendlyName(), content, orientation);
 }
 
 Command* CommandFactory::createFlipCommand()

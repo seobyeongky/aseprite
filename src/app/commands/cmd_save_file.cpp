@@ -18,6 +18,7 @@
 #include "app/context_access.h"
 #include "app/file/file.h"
 #include "app/file_selector.h"
+#include "app/i18n/strings.h"
 #include "app/job.h"
 #include "app/modules/gui.h"
 #include "app/pref/preferences.h"
@@ -140,8 +141,8 @@ private:
 
 //////////////////////////////////////////////////////////////////////
 
-SaveFileBaseCommand::SaveFileBaseCommand(const char* short_name, const char* friendly_name, CommandFlags flags)
-  : Command(short_name, friendly_name, flags)
+SaveFileBaseCommand::SaveFileBaseCommand(const char* id, CommandFlags flags)
+  : Command(id, flags)
 {
 }
 
@@ -172,17 +173,19 @@ bool SaveFileBaseCommand::onEnabled(Context* context)
   return context->checkFlags(ContextFlags::ActiveDocumentIsWritable);
 }
 
-bool SaveFileBaseCommand::saveAsDialog(Context* context,
-                                       const char* dlgTitle,
-                                       FileSelectorDelegate* delegate)
+bool SaveFileBaseCommand::saveAsDialog(
+  Context* context,
+  const std::string& dlgTitle,
+  const std::string& forbiddenFilename,
+  FileSelectorDelegate* delegate)
 {
   const Document* document = context->activeDocument();
   std::string filename;
 
-  // If there is a delegate, we're doing a "Save Copy As", so we don't
+  // If there is a delegate, we're doing a "Save Copy As/Export", so we don't
   // have to mark the file as saved.
-  bool saveCopyAs = (delegate != nullptr);
-  bool markAsSaved = (!saveCopyAs);
+  const bool isExport = (delegate != nullptr);
+  const bool markAsSaved = (!isExport);
   double xscale = 1.0;
   double yscale = 1.0;
 
@@ -193,6 +196,7 @@ bool SaveFileBaseCommand::saveAsDialog(Context* context,
     std::string exts = get_writable_extensions();
     filename = document->filename();
 
+  again:;
     FileSelectorFiles newfilename;
     if (!app::show_file_selector(
           dlgTitle, filename, exts,
@@ -201,6 +205,13 @@ bool SaveFileBaseCommand::saveAsDialog(Context* context,
       return false;
 
     filename = newfilename.front();
+    if (!forbiddenFilename.empty() &&
+        base::normalize_path(forbiddenFilename) ==
+        base::normalize_path(filename)) {
+      ui::Alert::show(Strings::alerts_cannot_file_overwrite_on_export());
+      goto again;
+    }
+
     if (delegate &&
         delegate->hasResizeCombobox()) {
       xscale = yscale = delegate->getResizeScale();
@@ -229,7 +240,7 @@ bool SaveFileBaseCommand::saveAsDialog(Context* context,
   // Apply scale
   bool undoResize = false;
   if (xscale != 1.0 || yscale != 1.0) {
-    Command* resizeCmd = CommandsModule::instance()->getCommandByName(CommandId::SpriteSize);
+    Command* resizeCmd = Commands::instance()->byId(CommandId::SpriteSize());
     ASSERT(resizeCmd);
     if (resizeCmd) {
       int width = document->sprite()->width();
@@ -276,7 +287,7 @@ bool SaveFileBaseCommand::saveAsDialog(Context* context,
 
   // Undo resize
   if (undoResize) {
-    Command* undoCmd = CommandsModule::instance()->getCommandByName(CommandId::Undo);
+    Command* undoCmd = Commands::instance()->byId(CommandId::Undo());
     if (undoCmd)
       context->executeCommand(undoCmd);
   }
@@ -346,7 +357,7 @@ protected:
 };
 
 SaveFileCommand::SaveFileCommand()
-  : SaveFileBaseCommand("SaveFile", "Save File", CmdRecordableFlag)
+  : SaveFileBaseCommand(CommandId::SaveFile(), CmdRecordableFlag)
 {
 }
 
@@ -382,7 +393,7 @@ protected:
 };
 
 SaveFileAsCommand::SaveFileAsCommand()
-  : SaveFileBaseCommand("SaveFileAs", "Save File As", CmdRecordableFlag)
+  : SaveFileBaseCommand(CommandId::SaveFileAs(), CmdRecordableFlag)
 {
 }
 
@@ -401,7 +412,7 @@ protected:
 };
 
 SaveFileCopyAsCommand::SaveFileCopyAsCommand()
-  : SaveFileBaseCommand("SaveFileCopyAs", "Save File Copy As", CmdRecordableFlag)
+  : SaveFileBaseCommand(CommandId::SaveFileCopyAs(), CmdRecordableFlag)
 {
 }
 
@@ -431,7 +442,9 @@ void SaveFileCopyAsCommand::onExecute(Context* context)
       docPref.saveCopy.filename());
   }
 
-  if (saveAsDialog(context, "Save Copy As", delegate)) {
+  if (saveAsDialog(context, "Export",
+                   (document->isAssociatedToFile() ? oldFilename: std::string()),
+                   delegate)) {
     docPref.saveCopy.filename(document->filename());
     if (delegate) {
       docPref.saveCopy.resizeScale(delegate->getResizeScale());

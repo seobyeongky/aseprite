@@ -40,9 +40,7 @@ protected:
 };
 
 SetLoopSectionCommand::SetLoopSectionCommand()
-  : Command("SetLoopSection",
-            "Set Loop Section",
-            CmdRecordableFlag)
+  : Command(CommandId::SetLoopSection(), CmdRecordableFlag)
   , m_action(Action::Auto)
   , m_begin(0)
   , m_end(0)
@@ -122,7 +120,7 @@ void SetLoopSectionCommand::onExecute(Context* ctx)
       transaction.commit();
     }
     else {
-      Command* cmd = CommandsModule::instance()->getCommandByName(CommandId::FrameTagProperties);
+      Command* cmd = Commands::instance()->byId(CommandId::FrameTagProperties());
       ctx->executeCommand(cmd);
     }
   }

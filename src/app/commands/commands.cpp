@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2015  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -20,56 +20,61 @@
 
 namespace app {
 
-#undef FOR_EACH_COMMAND
-  #define FOR_EACH_COMMAND(Name) \
-    const char* CommandId::Name = #Name;
-  #include "app/commands/commands_list.h"
-#undef FOR_EACH_COMMAND
+Commands* Commands::m_instance = NULL;
 
-CommandsModule* CommandsModule::m_instance = NULL;
-
-CommandsModule::CommandsModule()
+Commands::Commands()
 {
   ASSERT(m_instance == NULL);
   m_instance = this;
 
   #undef FOR_EACH_COMMAND
   #define FOR_EACH_COMMAND(Name) \
-    m_commands.push_back(CommandFactory::create##Name##Command());
+    add(CommandFactory::create##Name##Command());
 
   #include "app/commands/commands_list.h"
   #undef FOR_EACH_COMMAND
 }
 
-CommandsModule::~CommandsModule()
+Commands::~Commands()
 {
   ASSERT(m_instance == this);
 
-  for (Command* cmd : m_commands)
-    delete cmd;
+  for (auto& it : m_commands) {
+    Command* command = it.second;
+    delete command;
+  }
 
   m_commands.clear();
   m_instance = NULL;
 }
 
-CommandsModule* CommandsModule::instance()
+Commands* Commands::instance()
 {
   ASSERT(m_instance != NULL);
   return m_instance;
 }
 
-Command* CommandsModule::getCommandByName(const char* name)
+Command* Commands::byId(const char* id)
 {
-  if (!name)
-    return NULL;
+  if (!id)
+    return nullptr;
 
-  std::string lname = base::string_to_lower(name);
-  for (Command* cmd : m_commands) {
-    if (base::utf8_icmp(cmd->id(), lname) == 0)
-      return cmd;
-  }
+  auto lid = base::string_to_lower(id);
+  auto it = m_commands.find(lid);
+  return (it != m_commands.end() ? it->second: nullptr);
+}
 
-  return NULL;
+Commands* Commands::add(Command* command)
+{
+  auto lid = base::string_to_lower(command->id());
+  m_commands[lid] = command;
+  return this;
+}
+
+void Commands::getAllIds(std::vector<std::string>& ids)
+{
+  for (auto& it : m_commands)
+    ids.push_back(it.second->id());
 }
 
 } // namespace app

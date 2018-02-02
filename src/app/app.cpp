@@ -57,9 +57,11 @@
 #include "base/unique_ptr.h"
 #include "doc/site.h"
 #include "doc/sprite.h"
+#include "fmt/format.h"
 #include "render/render.h"
 #include "she/display.h"
 #include "she/error.h"
+#include "she/surface.h"
 #include "she/system.h"
 #include "ui/intern.h"
 #include "ui/ui.h"
@@ -92,7 +94,7 @@ public:
   FileSystemModule m_file_system_module;
   tools::ToolBox m_toolbox;
   tools::ActiveToolManager m_activeToolManager;
-  CommandsModule m_commands_modules;
+  Commands m_commands;
   UIContext m_ui_context;
   RecentFiles m_recent_files;
   InputChain m_inputChain;
@@ -146,11 +148,16 @@ App::App()
 
 void App::initialize(const AppOptions& options)
 {
+#ifdef _WIN32
+  if (options.disableWintab())
+    she::instance()->useWintabAPI(false);
+#endif
+
   m_isGui = options.startUI() && !options.previewCLI();
   m_isShell = options.startShell();
   m_coreModules = new CoreModules;
   if (m_isGui)
-    m_uiSystem.reset(new ui::UISystem(preferences().general.uiScale()));
+    m_uiSystem.reset(new ui::UISystem);
 
   bool createLogInDesktop = false;
   switch (options.verboseLevel()) {
@@ -230,6 +237,33 @@ void App::run()
 {
   // Run the GUI
   if (isGui()) {
+#if !defined(_WIN32) && !defined(__APPLE__)
+    // Setup app icon for Linux window managers
+    try {
+      she::Display* display = she::instance()->defaultDisplay();
+      she::SurfaceList icons;
+
+      for (const int size : { 32, 64, 128 }) {
+        ResourceFinder rf;
+        rf.includeDataDir(fmt::format("icons/ase{0}.png", size).c_str());
+        if (rf.findFirst()) {
+          she::Surface* surf = she::instance()->loadRgbaSurface(rf.filename().c_str());
+          if (surf)
+            icons.push_back(surf);
+        }
+      }
+
+      display->setIcons(icons);
+
+      for (auto surf : icons)
+        surf->dispose();
+    }
+    catch (const std::exception&) {
+      // Just ignore the exception, we couldn't change the app icon, no
+      // big deal.
+    }
+#endif
+
     // Initialize Steam API
 #ifdef ENABLE_STEAM
     steam::SteamAPI steam;
@@ -237,8 +271,8 @@ void App::run()
       she::instance()->activateApp();
 #endif
 
-#if _DEBUG
-    // On OS X, when we compile Aseprite on Debug mode, we're using it
+#if ENABLE_DEVMODE
+    // On OS X, when we compile Aseprite on devmode, we're using it
     // outside an app bundle, so we must active the app explicitly.
     she::instance()->activateApp();
 #endif

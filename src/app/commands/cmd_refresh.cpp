@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -11,6 +11,7 @@
 #include "app/app.h"
 #include "app/commands/command.h"
 #include "app/ui/status_bar.h"
+#include "ui/scale.h"
 #include "ui/system.h"
 #include "ui/theme.h"
 
@@ -32,19 +33,18 @@ protected:
 };
 
 RefreshCommand::RefreshCommand()
-  : Command("Refresh",
-            "Refresh",
-            CmdUIOnlyFlag)
+  : Command(CommandId::Refresh(), CmdUIOnlyFlag)
 {
 }
 
 void RefreshCommand::onExecute(Context* context)
 {
-  ui::get_theme()->regenerate();
+  ui::set_theme(ui::get_theme(),
+                ui::guiscale());
   app_refresh_screen();
 
   // Print memory information
-#if defined _WIN32 && defined _DEBUG
+#if defined _WIN32 && defined ENABLE_DEVMODE
   {
     PROCESS_MEMORY_COUNTERS pmc;
     if (::GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {

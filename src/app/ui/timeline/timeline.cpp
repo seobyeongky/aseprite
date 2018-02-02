@@ -203,6 +203,7 @@ Timeline::Timeline()
   , m_editor(NULL)
   , m_document(NULL)
   , m_sprite(NULL)
+  , m_rangeLocks(0)
   , m_state(STATE_STANDBY)
   , m_tagBands(0)
   , m_tagFocusBand(-1)
@@ -211,6 +212,7 @@ Timeline::Timeline()
   , m_confPopup(NULL)
   , m_clipboard_timer(100, this)
   , m_offset_count(0)
+  , m_redrawMarchingAntsOnly(false)
   , m_scroll(false)
   , m_fromTimeline(false)
 {
@@ -225,17 +227,9 @@ Timeline::Timeline()
   addChild(&m_hbar);
   addChild(&m_vbar);
 
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-
-  int barsize = theme->dimensions.miniScrollbarSize();
-  m_hbar.setBarWidth(barsize);
-  m_vbar.setBarWidth(barsize);
   m_hbar.setTransparent(true);
   m_vbar.setTransparent(true);
-  m_hbar.setStyle(theme->styles.transparentScrollbar());
-  m_vbar.setStyle(theme->styles.transparentScrollbar());
-  m_hbar.setThumbStyle(theme->styles.transparentScrollbarThumb());
-  m_vbar.setThumbStyle(theme->styles.transparentScrollbarThumb());
+  initTheme();
 }
 
 Timeline::~Timeline()
@@ -247,29 +241,35 @@ Timeline::~Timeline()
   delete m_confPopup;
 }
 
-void Timeline::setZoom(double zoom)
+void Timeline::setZoom(const double zoom)
 {
   m_zoom = MID(1.0, zoom, 10.0);
   m_thumbnailsOverlayDirection = gfx::Point(int(frameBoxWidth()*1.0), int(frameBoxWidth()*0.5));
   m_thumbnailsOverlayVisible = false;
 }
 
-void Timeline::setZoomAndUpdate(double zoom)
+void Timeline::setZoomAndUpdate(const double zoom,
+                                const bool updatePref)
 {
   if (zoom != m_zoom) {
     setZoom(zoom);
+    regenerateTagBands();
     updateScrollBars();
     setViewScroll(viewScroll());
     invalidate();
   }
-  if (zoom != docPref().thumbnails.zoom()) {
+  if (updatePref && zoom != docPref().thumbnails.zoom()) {
     docPref().thumbnails.zoom(zoom);
+    docPref().thumbnails.enabled(zoom > 1);
   }
 }
 
 void Timeline::onThumbnailsPrefChange()
 {
-  setZoomAndUpdate(docPref().thumbnails.zoom());
+  setZoomAndUpdate(
+    docPref().thumbnails.enabled() ?
+    docPref().thumbnails.zoom(): 1.0,
+    false);
 }
 
 void Timeline::updateUsingEditor(Editor* editor)
@@ -285,7 +285,8 @@ void Timeline::updateUsingEditor(Editor* editor)
 
   detachDocument();
 
-  if (m_range.enabled()) {
+  if (m_range.enabled() &&
+      m_rangeLocks == 0) {
     m_range.clearRange();
     invalidate();
   }
@@ -316,7 +317,9 @@ void Timeline::updateUsingEditor(Editor* editor)
   m_thumbnailsPrefConn = docPref.thumbnails.AfterChange.connect(
     base::Bind<void>(&Timeline::onThumbnailsPrefChange, this));
 
-  setZoom(docPref.thumbnails.zoom());
+  setZoom(
+    docPref.thumbnails.enabled() ?
+    docPref.thumbnails.zoom(): 1.0);
 
   // If we are already in the same position as the "editor", we don't
   // need to update the at all timeline.
@@ -370,12 +373,14 @@ void Timeline::detachDocument()
   if (m_document) {
     m_thumbnailsPrefConn.disconnect();
     m_document->remove_observer(this);
-    m_document = NULL;
+    m_document = nullptr;
+    m_sprite = nullptr;
+    m_layer = nullptr;
   }
 
   if (m_editor) {
     m_editor->remove_observer(this);
-    m_editor = NULL;
+    m_editor = nullptr;
   }
 
   invalidate();
@@ -514,19 +519,21 @@ void Timeline::activateClipboardRange()
 
 FrameTag* Timeline::getFrameTagByFrame(const frame_t frame)
 {
-  if (m_tagFocusBand < 0) {
-    return get_animation_tag(m_sprite, frame);
-  }
-  else {
-    for (FrameTag* frameTag : m_sprite->frameTags()) {
-      if (frame >= frameTag->fromFrame() &&
-          frame <= frameTag->toFrame() &&
-          m_tagBand[frameTag] == m_tagFocusBand) {
-        return frameTag;
-      }
-    }
+  if (!m_sprite)
     return nullptr;
+
+  if (m_tagFocusBand < 0)
+    return get_animation_tag(m_sprite, frame);
+
+  for (FrameTag* frameTag : m_sprite->frameTags()) {
+    if (frame >= frameTag->fromFrame() &&
+        frame <= frameTag->toFrame() &&
+        m_tagBand[frameTag] == m_tagFocusBand) {
+      return frameTag;
+    }
   }
+
+  return nullptr;
 }
 
 bool Timeline::onProcessMessage(Message* msg)
@@ -545,18 +552,23 @@ bool Timeline::onProcessMessage(Message* msg)
           &clipboard_document,
           &clipboard_range);
 
-        if (isVisible() && m_document && clipboard_document == m_document) {
+        if (isVisible() &&
+            m_document &&
+            m_document == clipboard_document) {
           // Set offset to make selection-movement effect
           if (m_offset_count < 7)
             m_offset_count++;
           else
             m_offset_count = 0;
+
+          bool redrawOnlyMarchingAnts = getUpdateRegion().isEmpty();
+          invalidateRect(gfx::Rect(getRangeBounds(clipboard_range)).offset(origin()));
+          if (redrawOnlyMarchingAnts)
+            m_redrawMarchingAntsOnly = true;
         }
         else if (m_clipboard_timer.isRunning()) {
           m_clipboard_timer.stop();
         }
-
-        invalidate();
       }
       break;
 
@@ -1066,8 +1078,8 @@ bool Timeline::onProcessMessage(Message* msg)
                 }
               }
               else if (mouseMsg->left()) {
-                Command* command = CommandsModule::instance()
-                  ->getCommandByName(CommandId::FrameTagProperties);
+                Command* command = Commands::instance()
+                  ->byId(CommandId::FrameTagProperties());
                 UIContext::instance()->executeCommand(command, params);
               }
             }
@@ -1120,16 +1132,16 @@ bool Timeline::onProcessMessage(Message* msg)
       switch (m_hot.part) {
 
         case PART_ROW_TEXT: {
-          Command* command = CommandsModule::instance()
-            ->getCommandByName(CommandId::LayerProperties);
+          Command* command = Commands::instance()
+            ->byId(CommandId::LayerProperties());
 
           UIContext::instance()->executeCommand(command);
           return true;
         }
 
         case PART_HEADER_FRAME: {
-          Command* command = CommandsModule::instance()
-            ->getCommandByName(CommandId::FrameProperties);
+          Command* command = Commands::instance()
+            ->byId(CommandId::FrameProperties());
           Params params;
           params.set("frame", "current");
 
@@ -1138,8 +1150,8 @@ bool Timeline::onProcessMessage(Message* msg)
         }
 
         case PART_CEL: {
-          Command* command = CommandsModule::instance()
-            ->getCommandByName(CommandId::CelProperties);
+          Command* command = Commands::instance()
+            ->byId(CommandId::CelProperties());
 
           UIContext::instance()->executeCommand(command);
           return true;
@@ -1229,22 +1241,39 @@ bool Timeline::onProcessMessage(Message* msg)
     case kMouseWheelMessage:
       if (m_document) {
         gfx::Point delta = static_cast<MouseMessage*>(msg)->wheelDelta();
-        if (!static_cast<MouseMessage*>(msg)->preciseWheel()) {
-          delta.x *= frameBoxWidth();
-          delta.y *= layerBoxHeight();
+        const bool precise = static_cast<MouseMessage*>(msg)->preciseWheel();
 
-          if (msg->shiftPressed()) {
-            // On macOS shift already changes the wheel axis
-            if (std::fabs(delta.y) > delta.x)
-              std::swap(delta.x, delta.y);
+        // Zoom timeline
+        if (msg->ctrlPressed() || // TODO configurable
+            msg->cmdPressed()) {
+          double dz = delta.x + delta.y;
+
+          if (precise) {
+            dz /= 1.5;
+            if (dz < -1.0) dz = -1.0;
+            else if (dz > 1.0) dz = 1.0;
           }
 
-          if (msg->altPressed()) {
-            delta.x *= 3;
-            delta.y *= 3;
-          }
+          setZoomAndUpdate(m_zoom - dz, true);
         }
-        setViewScroll(viewScroll() + delta);
+        else {
+          if (!precise) {
+            delta.x *= frameBoxWidth();
+            delta.y *= layerBoxHeight();
+
+            if (delta.x == 0 && // On macOS shift already changes the wheel axis
+                msg->shiftPressed()) {
+              if (std::fabs(delta.y) > delta.x)
+                std::swap(delta.x, delta.y);
+            }
+
+            if (msg->altPressed()) {
+              delta.x *= 3;
+              delta.y *= 3;
+            }
+          }
+          setViewScroll(viewScroll() + delta);
+        }
       }
       break;
 
@@ -1256,11 +1285,33 @@ bool Timeline::onProcessMessage(Message* msg)
       break;
 
     case kTouchMagnifyMessage:
-      setZoomAndUpdate(m_zoom + m_zoom * static_cast<ui::TouchMessage*>(msg)->magnification());
+      setZoomAndUpdate(
+        m_zoom + m_zoom * static_cast<ui::TouchMessage*>(msg)->magnification(),
+        true);
       break;
   }
 
   return Widget::onProcessMessage(msg);
+}
+
+void Timeline::onInitTheme(ui::InitThemeEvent& ev)
+{
+  Widget::onInitTheme(ev);
+
+  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+  int barsize = theme->dimensions.miniScrollbarSize();
+  m_hbar.setBarWidth(barsize);
+  m_vbar.setBarWidth(barsize);
+  m_hbar.setStyle(theme->styles.transparentScrollbar());
+  m_vbar.setStyle(theme->styles.transparentScrollbar());
+  m_hbar.setThumbStyle(theme->styles.transparentScrollbarThumb());
+  m_vbar.setThumbStyle(theme->styles.transparentScrollbarThumb());
+}
+
+void Timeline::onInvalidateRegion(const gfx::Region& region)
+{
+  Widget::onInvalidateRegion(region);
+  m_redrawMarchingAntsOnly = false;
 }
 
 void Timeline::onSizeHint(SizeHintEvent& ev)
@@ -1296,6 +1347,12 @@ void Timeline::onPaint(ui::PaintEvent& ev)
     // Lock the sprite to read/render it. We wait 1/4 secs in case
     // the background thread is making a backup.
     const DocumentReader documentReader(m_document, 250);
+
+    if (m_redrawMarchingAntsOnly) {
+      drawClipboardRange(g);
+      m_redrawMarchingAntsOnly = false;
+      return;
+    }
 
     layer_t layer, firstLayer, lastLayer;
     frame_t frame, firstFrame, lastFrame;
@@ -1532,7 +1589,8 @@ void Timeline::onRemoveFrame(doc::DocumentEvent& ev)
 
 void Timeline::onSelectionChanged(doc::DocumentEvent& ev)
 {
-  m_range.clearRange();
+  if (m_rangeLocks == 0)
+    m_range.clearRange();
   invalidate();
 }
 
@@ -1700,11 +1758,14 @@ void Timeline::drawClipboardRange(ui::Graphics* g)
   if (!m_clipboard_timer.isRunning())
     m_clipboard_timer.start();
 
-  CheckedDrawMode checked(g, m_offset_count,
-                          gfx::rgba(0, 0, 0, 255),
-                          gfx::rgba(255, 255, 255, 255));
-  g->drawRect(gfx::rgba(0, 0, 0),
-    getRangeBounds(clipboard_range));
+  IntersectClip clip(g, getCelsBounds());
+  if (clip) {
+    CheckedDrawMode checked(g, m_offset_count,
+                            gfx::rgba(0, 0, 0, 255),
+                            gfx::rgba(255, 255, 255, 255));
+    g->drawRect(gfx::rgba(0, 0, 0),
+                getRangeBounds(clipboard_range));
+  }
 }
 
 void Timeline::drawTop(ui::Graphics* g)
@@ -1770,8 +1831,10 @@ void Timeline::drawHeaderFrame(ui::Graphics* g, frame_t frame)
     return;
 
   // Draw the header for the layers.
-  std::string text = base::convert_to<std::string, int>(
-    (docPref().timeline.firstFrame()+frame) % 100);
+  const int n = (docPref().timeline.firstFrame()+frame);
+  std::string text = base::convert_to<std::string, int>(n % 100);
+  if (n >= 100 && (n % 100) < 10)
+    text.insert(0, 1, '0');
 
   drawPart(g, bounds, &text,
            skinTheme()->styles.timelineHeaderFrame(),
@@ -1923,88 +1986,78 @@ void Timeline::drawCel(ui::Graphics* g, layer_t layerIndex, frame_t frame, Cel* 
   if (!clip)
     return;
 
-  if (layer == m_layer && frame == m_frame)
+  // Draw background
+  if (layer == m_layer &&
+      frame == m_frame)
     drawPart(g, bounds, nullptr, styles.timelineSelectedCel(), false, false, true);
   else
     drawPart(g, bounds, nullptr, styles.timelineBox(), is_active, is_hover);
 
-  if ((docPref().thumbnails.enabled() || m_zoom > 1) && image) {
-    gfx::Rect thumb_bounds = gfx::Rect(bounds).shrink(guiscale()).inflate(guiscale(), guiscale());
-    if(m_zoom > 1)
-      thumb_bounds.inflate(0, -headerBoxHeight()).offset(0, headerBoxHeight());
+  // Fill with an user-defined custom color.
+  if (cel && cel->data()) {
+    doc::color_t celColor = cel->data()->userData().color();
+    if (doc::rgba_geta(celColor) > 0) {
+      auto b2 = bounds;
+      b2.shrink(1 * guiscale()).inflate(1 * guiscale());
+      g->fillRect(gfx::rgba(doc::rgba_getr(celColor),
+                            doc::rgba_getg(celColor),
+                            doc::rgba_getb(celColor),
+                            doc::rgba_geta(celColor)),
+                  b2);
+    }
+  }
 
-    if(!thumb_bounds.isEmpty()) {
+  // Draw keyframe shape
+
+  ui::Style* style = nullptr;
+  bool fromLeft = false;
+  bool fromRight = false;
+  if (is_empty || !data) {
+    style = styles.timelineEmptyFrame();
+  }
+  else {
+    // Calculate which cel is next to this one (in previous and next
+    // frame).
+    Cel* left = (data->prevIt != data->end ? *data->prevIt: nullptr);
+    Cel* right = (data->nextIt != data->end ? *data->nextIt: nullptr);
+    if (left && left->frame() != frame-1) left = nullptr;
+    if (right && right->frame() != frame+1) right = nullptr;
+
+    ObjectId leftImg = (left ? left->image()->id(): 0);
+    ObjectId rightImg = (right ? right->image()->id(): 0);
+    fromLeft = (leftImg == cel->image()->id());
+    fromRight = (rightImg == cel->image()->id());
+
+    if (fromLeft && fromRight)
+      style = styles.timelineFromBoth();
+    else if (fromLeft)
+      style = styles.timelineFromLeft();
+    else if (fromRight)
+      style = styles.timelineFromRight();
+    else
+      style = styles.timelineKeyframe();
+  }
+
+  drawPart(g, bounds, nullptr, style, is_active, is_hover);
+
+  // Draw thumbnail
+  if ((docPref().thumbnails.enabled() && m_zoom > 1) && image) {
+    gfx::Rect thumb_bounds =
+      gfx::Rect(bounds).shrink(
+        skinTheme()->calcBorder(this, style));
+
+    if (!thumb_bounds.isEmpty()) {
       she::Surface* thumb_surf = thumb::get_cel_thumbnail(cel, thumb_bounds.size());
-
-      g->drawRgbaSurface(thumb_surf, thumb_bounds.x, thumb_bounds.y);
-
-      thumb_surf->dispose();
+      if (thumb_surf) {
+        g->drawRgbaSurface(thumb_surf, thumb_bounds.x, thumb_bounds.y);
+        thumb_surf->dispose();
+      }
     }
   }
 
-  if (!docPref().thumbnails.enabled() || m_zoom > 1 || !image) {
-    bounds.h = headerBoxHeight();
-
-    // Fill with an user-defined custom color.
-    if (cel && cel->data()) {
-      doc::color_t celColor = cel->data()->userData().color();
-      if (doc::rgba_geta(celColor) > 0) {
-        auto b2 = bounds;
-        b2.shrink(1 * guiscale()).inflate(1 * guiscale());
-        g->fillRect(gfx::rgba(doc::rgba_getr(celColor),
-          doc::rgba_getg(celColor),
-          doc::rgba_getb(celColor),
-          doc::rgba_geta(celColor)),
-          b2);
-      }
-    }
-
-    bounds.w = headerBoxWidth();
-
-    ui::Style* style = nullptr;
-    bool fromLeft = false;
-    bool fromRight = false;
-    if (is_empty || !data) {
-      style = styles.timelineEmptyFrame();
-    }
-    else {
-      // Calculate which cel is next to this one (in previous and next
-      // frame).
-      Cel* left = (data->prevIt != data->end ? *data->prevIt: nullptr);
-      Cel* right = (data->nextIt != data->end ? *data->nextIt: nullptr);
-      if (left && left->frame() != frame-1) left = nullptr;
-      if (right && right->frame() != frame+1) right = nullptr;
-
-      ObjectId leftImg = (left ? left->image()->id(): 0);
-      ObjectId rightImg = (right ? right->image()->id(): 0);
-      fromLeft = (leftImg == cel->image()->id());
-      fromRight = (rightImg == cel->image()->id());
-
-      if (fromLeft && fromRight)
-        style = styles.timelineFromBoth();
-      else if (fromLeft)
-        style = styles.timelineFromLeft();
-      else if (fromRight)
-        style = styles.timelineFromRight();
-      else
-        style = styles.timelineKeyframe();
-    }
-    drawPart(g, bounds, nullptr, style, is_active, is_hover);
-
-    if (m_zoom > 1) {
-      if (style == styles.timelineFromBoth() ||
-          style == styles.timelineFromRight()) {
-        style = styles.timelineFromBoth();
-        while ((bounds.x += bounds.w) < full_bounds.x + full_bounds.w) {
-          drawPart(g, bounds, nullptr, style, is_active, is_hover);
-        }
-      }
-    }
-
-    // Draw decorators to link the activeCel with its links.
-    if (data && data->activeIt != data->end)
-      drawCelLinkDecorators(g, full_bounds, cel, frame, is_active, is_hover, data);
-  }
+  // Draw decorators to link the activeCel with its links.
+  if (data && data->activeIt != data->end)
+    drawCelLinkDecorators(g, full_bounds, cel, frame, is_active, is_hover, data);
 }
 
 void Timeline::updateCelOverlayBounds(const Hit& hit)
@@ -2113,15 +2166,15 @@ void Timeline::drawCelOverlay(ui::Graphics* g)
   overlay_surf->dispose();
 }
 
-void Timeline::drawCelLinkDecorators(ui::Graphics* g, const gfx::Rect& full_bounds,
+void Timeline::drawCelLinkDecorators(ui::Graphics* g, const gfx::Rect& bounds,
                                      Cel* cel, frame_t frame, bool is_active, bool is_hover,
                                      DrawCelData* data)
 {
   auto& styles = skinTheme()->styles;
   ObjectId imageId = (*data->activeIt)->image()->id();
 
-  gfx::Rect bounds = gfx::Rect(full_bounds).setSize(gfx::Size(headerBoxWidth(), headerBoxHeight()));
-  ui::Style* style = NULL;
+  ui::Style* style1 = nullptr;
+  ui::Style* style2 = nullptr;
 
   // Links at the left or right side
   bool left = (data->firstLink != data->end ? frame > (*data->firstLink)->frame(): false);
@@ -2131,29 +2184,21 @@ void Timeline::drawCelLinkDecorators(ui::Graphics* g, const gfx::Rect& full_boun
     if (left) {
       Cel* prevCel = m_layer->cel(cel->frame()-1);
       if (!prevCel || prevCel->image()->id() != imageId)
-        style = styles.timelineLeftLink();
+        style1 = styles.timelineLeftLink();
     }
     if (right) {
       Cel* nextCel = m_layer->cel(cel->frame()+1);
       if (!nextCel || nextCel->image()->id() != imageId)
-        style = styles.timelineRightLink();
+        style2 = styles.timelineRightLink();
     }
   }
   else {
     if (left && right)
-      style = styles.timelineBothLinks();
+      style1 = styles.timelineBothLinks();
   }
 
-  if (style) {
-    drawPart(g, bounds, nullptr, style, is_active, is_hover);
-
-    if (m_zoom > 1 && (style == styles.timelineBothLinks() || style == styles.timelineRightLink())) {
-      style = styles.timelineBothLinks();
-      while ((bounds.x += bounds.w) < full_bounds.x + full_bounds.w) {
-        drawPart(g, bounds, nullptr, style, is_active, is_hover);
-      }
-    }
-  }
+  if (style1) drawPart(g, bounds, nullptr, style1, is_active, is_hover);
+  if (style2) drawPart(g, bounds, nullptr, style2, is_active, is_hover);
 }
 
 void Timeline::drawFrameTags(ui::Graphics* g)
@@ -2688,7 +2733,10 @@ void Timeline::regenerateTagBands()
       m_tagBand[frameTag] = tagsPerFrame[f];
 
     frame_t toFrame = calcTagVisibleToFrame(frameTag);
+    if (toFrame >= frame_t(tagsPerFrame.size()))
+      tagsPerFrame.resize(toFrame+1, 0);
     for (; f<=toFrame; ++f) {
+      ASSERT(f < frame_t(tagsPerFrame.size()));
       if (tagsPerFrame[f] < 255)
         ++tagsPerFrame[f];
     }
@@ -3334,8 +3382,8 @@ void Timeline::dropRange(DropOp op)
 
     moveRange(newFromRange);
   }
-  catch (const std::exception& e) {
-    ui::Alert::show("Problem<<%s||&OK", e.what());
+  catch (const std::exception& ex) {
+    Console::showException(ex);
   }
 }
 
@@ -3363,6 +3411,17 @@ void Timeline::setViewScroll(const gfx::Point& pt)
   m_hbar.setPos(newScroll.x);
   m_vbar.setPos(newScroll.y);
   invalidate();
+}
+
+
+void Timeline::lockRange()
+{
+  ++m_rangeLocks;
+}
+
+void Timeline::unlockRange()
+{
+  --m_rangeLocks;
 }
 
 void Timeline::updateDropRange(const gfx::Point& pt)
@@ -3470,12 +3529,12 @@ int Timeline::headerBoxHeight() const
 
 int Timeline::layerBoxHeight() const
 {
-  return int(m_zoom*skinTheme()->dimensions.timelineBaseSize() + int(m_zoom > 1) * headerBoxHeight());
+  return int(zoom()*skinTheme()->dimensions.timelineBaseSize());
 }
 
 int Timeline::frameBoxWidth() const
 {
-  return int(m_zoom*skinTheme()->dimensions.timelineBaseSize());
+  return int(zoom()*skinTheme()->dimensions.timelineBaseSize());
 }
 
 int Timeline::outlineWidth() const
@@ -3489,6 +3548,14 @@ int Timeline::oneTagHeight() const
     font()->height() +
     2*ui::guiscale() +
     skinTheme()->dimensions.timelineTagsAreaHeight();
+}
+
+double Timeline::zoom() const
+{
+  if (docPref().thumbnails.enabled())
+    return m_zoom;
+  else
+    return 1.0;
 }
 
 // Returns the last frame where the frame tag (or frame tag label)
@@ -3523,7 +3590,9 @@ void Timeline::onNewInputPriority(InputChainElement* element)
   // That is why we don't disable the range in this case.
   Workspace* workspace = dynamic_cast<Workspace*>(element);
   if (!workspace) {
-    m_range.clearRange();
+    if (m_rangeLocks == 0)
+      m_range.clearRange();
+
     invalidate();
   }
 }
@@ -3588,13 +3657,13 @@ bool Timeline::onClear(Context* ctx)
 
   switch (m_range.type()) {
     case DocumentRange::kCels:
-      cmd = CommandsModule::instance()->getCommandByName(CommandId::ClearCel);
+      cmd = Commands::instance()->byId(CommandId::ClearCel());
       break;
     case DocumentRange::kFrames:
-      cmd = CommandsModule::instance()->getCommandByName(CommandId::RemoveFrame);
+      cmd = Commands::instance()->byId(CommandId::RemoveFrame());
       break;
     case DocumentRange::kLayers:
-      cmd = CommandsModule::instance()->getCommandByName(CommandId::RemoveLayer);
+      cmd = Commands::instance()->byId(CommandId::RemoveLayer());
       break;
   }
 
@@ -3608,7 +3677,9 @@ bool Timeline::onClear(Context* ctx)
 
 void Timeline::onCancel(Context* ctx)
 {
-  m_range.clearRange();
+  if (m_rangeLocks == 0)
+    m_range.clearRange();
+
   clearClipboardRange();
   invalidate();
 }

@@ -53,7 +53,7 @@ add_custom_command(
   DEPENDS gen)
 list(APPEND generated_files ${output_fn})
 
-# Generate strings.h from data/strings/en.ini
+# Generate strings.ini.h from data/strings/en.ini
 set(strings_en_ini ${CMAKE_SOURCE_DIR}/data/strings/en.ini)
 set(output_fn ${CMAKE_CURRENT_BINARY_DIR}/strings.ini.h)
 add_custom_command(
@@ -65,14 +65,25 @@ add_custom_command(
   DEPENDS gen)
 list(APPEND generated_files ${output_fn})
 
+# Generate command_ids.ini.h from data/strings/en.ini
+set(output_fn ${CMAKE_CURRENT_BINARY_DIR}/command_ids.ini.h)
+add_custom_command(
+  OUTPUT ${output_fn}
+  COMMAND ${CMAKE_BINARY_DIR}/bin/gen --input ${strings_en_ini} --command-ids > ${output_fn}.tmp
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${output_fn}.tmp ${output_fn}
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+  MAIN_DEPENDENCY ${strings_en_ini}
+  DEPENDS gen)
+list(APPEND generated_files ${output_fn})
+
 # Check translations
 file(GLOB string_files ${CMAKE_SOURCE_DIR}/data/strings/*.ini)
 set(output_fn ${CMAKE_CURRENT_BINARY_DIR}/check-translations.txt)
 add_custom_command(
   OUTPUT ${output_fn}
-  COMMAND ${CMAKE_BINARY_DIR}/bin/gen --widgets-dir "${CMAKE_SOURCE_DIR}/data/widgets/" --strings-dir "${CMAKE_SOURCE_DIR}/data/strings/" >${output_fn}
+  COMMAND ${CMAKE_BINARY_DIR}/bin/gen --widgets-dir "${CMAKE_SOURCE_DIR}/data/widgets/" --strings-dir "${CMAKE_SOURCE_DIR}/data/strings/" --gui-file "${CMAKE_SOURCE_DIR}/data/gui.xml" >${output_fn}
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  DEPENDS gen ${widget_files} ${string_files})
+  DEPENDS gen ${widget_files} ${string_files} "${CMAKE_SOURCE_DIR}/data/gui.xml")
 list(APPEND generated_files ${output_fn})
 
 # Directory where generated files by "gen" utility will stay.
@@ -137,7 +148,11 @@ if(ENABLE_SCRIPTING)
     script/console_object.cpp
     script/image_class.cpp
     script/image_wrap.cpp
+    script/pixel_color_class.cpp
+    script/point_class.cpp
+    script/rectangle_class.cpp
     script/selection_class.cpp
+    script/size_class.cpp
     script/sprite_class.cpp
     script/sprite_wrap.cpp
     shell.cpp
@@ -278,6 +293,7 @@ add_library(app-lib
   commands/cmd_keyboard_shortcuts.cpp
   commands/cmd_launch.cpp
   commands/cmd_layer_from_background.cpp
+  commands/cmd_layer_lock.cpp
   commands/cmd_layer_opacity.cpp
   commands/cmd_layer_properties.cpp
   commands/cmd_layer_visibility.cpp
@@ -348,6 +364,7 @@ add_library(app-lib
   commands/cmd_zoom.cpp
   commands/command.cpp
   commands/commands.cpp
+  commands/filters/cmd_brightness_contrast.cpp
   commands/filters/cmd_color_curve.cpp
   commands/filters/cmd_convolution_matrix.cpp
   commands/filters/cmd_despeckle.cpp
@@ -361,6 +378,8 @@ add_library(app-lib
   commands/filters/filter_target_buttons.cpp
   commands/filters/filter_window.cpp
   commands/filters/filter_worker.cpp
+  commands/move_thing.cpp
+  commands/quick_command.cpp
   console.cpp
   context.cpp
   context_flags.cpp
@@ -386,6 +405,7 @@ add_library(app-lib
   font_path.cpp
   gui_xml.cpp
   i18n/strings.cpp
+  i18n/xml_translator.cpp
   ini_file.cpp
   job.cpp
   launcher.cpp
@@ -401,7 +421,6 @@ add_library(app-lib
   pref/preferences.cpp
   project.cpp
   recent_files.cpp
-  render_task_job.cpp
   res/http_loader.cpp
   res/palettes_loader_delegate.cpp
   res/resources_loader.cpp
@@ -411,7 +430,9 @@ add_library(app-lib
   send_crash.cpp
   shade.cpp
   snap_to_grid.cpp
+  sprite_job.cpp
   thumbnail_generator.cpp
+  thumbnails.cpp
   tools/active_tool.cpp
   tools/ink_type.cpp
   tools/intertwine.cpp
@@ -495,6 +516,7 @@ add_library(app-lib
   ui/skin/skin_slider_property.cpp
   ui/skin/skin_theme.cpp
   ui/slice_window.cpp
+  ui/slider2.cpp
   ui/status_bar.cpp
   ui/tabs.cpp
   ui/timeline/ani_controls.cpp
@@ -506,7 +528,6 @@ add_library(app-lib
   ui/workspace_tabs.cpp
   ui/zoom_entry.cpp
   ui_context.cpp
-  thumbnails.cpp
   util/autocrop.cpp
   util/clipboard.cpp
   util/clipboard_native.cpp
@@ -519,6 +540,7 @@ add_library(app-lib
   util/pic_file.cpp
   util/pixel_ratio.cpp
   util/range_utils.cpp
+  util/wrap_point.cpp
   webserver.cpp
   widget_loader.cpp
   xml_document.cpp
@@ -533,7 +555,7 @@ target_link_libraries(app-lib
   cfg-lib
   clip
   doc-lib
-  docio-lib
+  dio-lib
   filters-lib
   fixmath-lib
   flic-lib
@@ -553,7 +575,8 @@ target_link_libraries(app-lib
   ${FREETYPE_LIBRARIES}
   ${HARFBUZZ_LIBRARIES}
   json11
-  archive_static)
+  archive_static
+  fmt)
 
 if(ENABLE_SCRIPTING)
   target_link_libraries(app-lib script-lib)
@@ -570,4 +593,8 @@ endif()
 if(ENABLE_STEAM)
   add_definitions(-DENABLE_STEAM)
   target_link_libraries(app-lib steam-lib)
+endif()
+
+if(ENABLE_DEVMODE)
+  add_definitions(-DENABLE_DEVMODE)
 endif()

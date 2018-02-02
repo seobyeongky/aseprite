@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2015  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,12 +13,12 @@
 #include "app/document_api.h"
 #include "app/modules/editors.h"
 #include "app/modules/gui.h"
+#include "app/transaction.h"
 #include "app/ui/button_set.h"
 #include "app/ui/color_bar.h"
 #include "app/ui/editor/editor.h"
 #include "app/ui/editor/select_box_state.h"
 #include "app/ui/skin/skin_theme.h"
-#include "app/transaction.h"
 #include "base/bind.h"
 #include "base/unique_ptr.h"
 #include "doc/image.h"
@@ -281,9 +281,7 @@ protected:
 };
 
 CanvasSizeCommand::CanvasSizeCommand()
-  : Command("CanvasSize",
-            "Canvas Size",
-            CmdRecordableFlag)
+  : Command(CommandId::CanvasSize(), CmdRecordableFlag)
 {
   m_left = m_right = m_top = m_bottom = 0;
 }

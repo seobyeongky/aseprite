@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -90,6 +90,9 @@ namespace app {
     // When the right-click is pressed in the tab.
     virtual void onContextMenuTab(Tabs* tabs, TabView* tabView) = 0;
 
+    // When the tab bar background is double-clicked.
+    virtual void onTabsContainerDoubleClicked(Tabs* tabs) = 0;
+
     // Called when the mouse is over a tab (the data can be null if the
     // mouse just leave all tabs)
     virtual void onMouseOverTab(Tabs* tabs, TabView* tabView) = 0;
@@ -172,6 +175,7 @@ namespace app {
 
   protected:
     bool onProcessMessage(ui::Message* msg) override;
+    void onInitTheme(ui::InitThemeEvent& ev) override;
     void onPaint(ui::PaintEvent& ev) override;
     void onResize(ui::ResizeEvent& ev) override;
     void onSizeHint(ui::SizeHintEvent& ev) override;

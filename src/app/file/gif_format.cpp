@@ -64,7 +64,7 @@ class GifFormat : public FileFormat {
 
   const char* onGetName() const override { return "gif"; }
   const char* onGetExtensions() const override { return "gif"; }
-  docio::FileFormat onGetDocioFormat() const override { return docio::FileFormat::GIF_ANIMATION; }
+  dio::FileFormat onGetDioFormat() const override { return dio::FileFormat::GIF_ANIMATION; }
   int onGetFlags() const override {
     return
       FILE_SUPPORT_LOAD |
@@ -174,7 +174,7 @@ static inline doc::color_t colormap2rgba(ColorMapObject* colormap, int i) {
 // merged with new colormaps.
 class GifDecoder {
 public:
-  GifDecoder(FileOp* fop, GifFileType* gifFile, int fd, int filesize)
+  GifDecoder(FileOp* fop, GifFileType* gifFile, int fd, size_t filesize)
     : m_fop(fop)
     , m_gifFile(gifFile)
     , m_fd(fd)
@@ -578,29 +578,50 @@ private:
 
   void compositeIndexedImageToIndexed(const gfx::Rect& frameBounds,
                                       const Image* frameImage) {
+    const LockImageBits<IndexedTraits> srcBits(
+      frameImage, gfx::Rect(0, 0, frameBounds.w, frameBounds.h));
+    LockImageBits<IndexedTraits> dstBits(
+      m_currentImage.get(), frameBounds);
+
+    auto srcIt = srcBits.begin();
+    auto dstIt = dstBits.begin();
+
     // Compose the frame image with the previous frame
     for (int y=0; y<frameBounds.h; ++y) {
-      for (int x=0; x<frameBounds.w; ++x) {
-        color_t i = get_pixel_fast<IndexedTraits>(frameImage, x, y);
+      for (int x=0; x<frameBounds.w; ++x, ++srcIt, ++dstIt) {
+        ASSERT(srcIt != srcBits.end());
+        ASSERT(dstIt != dstBits.end());
+
+        color_t i = *srcIt;
         if (int(i) == m_localTransparentIndex)
           continue;
 
         i = m_remap[i];
-        put_pixel_fast<IndexedTraits>(m_currentImage.get(),
-                                      frameBounds.x + x,
-                                      frameBounds.y + y, i);
+
+        *dstIt = i;
       }
     }
   }
 
   void compositeIndexedImageToRgb(const gfx::Rect& frameBounds,
                                   const Image* frameImage) {
+    const LockImageBits<IndexedTraits> srcBits(
+      frameImage, gfx::Rect(0, 0, frameBounds.w, frameBounds.h));
+    LockImageBits<RgbTraits> dstBits(
+      m_currentImage.get(), frameBounds);
+
+    auto srcIt = srcBits.begin();
+    auto dstIt = dstBits.begin();
+
     ColorMapObject* colormap = getFrameColormap();
 
     // Compose the frame image with the previous frame
     for (int y=0; y<frameBounds.h; ++y) {
-      for (int x=0; x<frameBounds.w; ++x) {
-        color_t i = get_pixel_fast<IndexedTraits>(frameImage, x, y);
+      for (int x=0; x<frameBounds.w; ++x, ++srcIt, ++dstIt) {
+        ASSERT(srcIt != srcBits.end());
+        ASSERT(dstIt != dstBits.end());
+
+        color_t i = *srcIt;
         if (int(i) == m_localTransparentIndex)
           continue;
 
@@ -609,9 +630,7 @@ private:
           colormap->Colors[i].Green,
           colormap->Colors[i].Blue, 255);
 
-        put_pixel_fast<RgbTraits>(m_currentImage.get(),
-                                  frameBounds.x + x,
-                                  frameBounds.y + y, i);
+        *dstIt = i;
       }
     }
   }
@@ -767,7 +786,7 @@ private:
   FileOp* m_fop;
   GifFileType* m_gifFile;
   int m_fd;
-  int m_filesize;
+  size_t m_filesize;
   UniquePtr<Sprite> m_sprite;
   gfx::Rect m_spriteBounds;
   LayerImage* m_layer;
@@ -792,7 +811,7 @@ bool GifFormat::onLoad(FileOp* fop)
 {
   // The filesize is used only to report some progress when we decode
   // the GIF file.
-  int filesize = base::file_size(fop->filename());
+  size_t filesize = base::file_size(fop->filename());
 
 #if GIFLIB_MAJOR >= 5
   int errCode = 0;
@@ -1118,13 +1137,19 @@ private:
     }
 
     {
-      LockImageBits<RgbTraits> bits(m_currentImage, frameBounds);
-      auto it = bits.begin();
-      for (int y=0; y<frameBounds.h; ++y) {
-        for (int x=0; x<frameBounds.w; ++x, ++it) {
-          ASSERT(it != bits.end());
+      const LockImageBits<RgbTraits> srcBits(m_currentImage, frameBounds);
+      LockImageBits<IndexedTraits> dstBits(
+        frameImage.get(), gfx::Rect(0, 0, frameBounds.w, frameBounds.h));
 
-          color_t color = *it;
+      auto srcIt = srcBits.begin();
+      auto dstIt = dstBits.begin();
+
+      for (int y=0; y<frameBounds.h; ++y) {
+        for (int x=0; x<frameBounds.w; ++x, ++srcIt, ++dstIt) {
+          ASSERT(srcIt != srcBits.end());
+          ASSERT(dstIt != dstBits.end());
+
+          color_t color = *srcIt;
           int i;
 
           if (rgba_geta(color) >= 128) {
@@ -1157,7 +1182,7 @@ private:
             usedColors.resize(i+1);
           usedColors[i] = true;
 
-          put_pixel_fast<IndexedTraits>(frameImage.get(), x, y, i);
+          *dstIt = i;
         }
       }
     }

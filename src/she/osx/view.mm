@@ -4,6 +4,8 @@
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
 
+#define KEY_TRACE(...)
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -19,6 +21,12 @@
 #include "she/system.h"
 
 namespace she {
+
+// Global variable used between View and OSXNSMenu to check if the
+// keyDown: event was used by a key equivalent in the menu.
+//
+// TODO I'm not proud of this, but it does the job
+bool g_keyEquivalentUsed = false;
 
 bool osx_is_key_pressed(KeyScancode scancode);
 
@@ -47,13 +55,13 @@ Event::MouseButton get_mouse_buttons(NSEvent* event)
   // Some Wacom drivers on OS X report right-clicks with
   // buttonNumber=0, so we've to check the type event anyway.
   switch (event.type) {
-    case NSLeftMouseDown:
-    case NSLeftMouseUp:
-    case NSLeftMouseDragged:
+    case NSEventTypeLeftMouseDown:
+    case NSEventTypeLeftMouseUp:
+    case NSEventTypeLeftMouseDragged:
       return Event::LeftButton;
-    case NSRightMouseDown:
-    case NSRightMouseUp:
-    case NSRightMouseDragged:
+    case NSEventTypeRightMouseDown:
+    case NSEventTypeRightMouseUp:
+    case NSEventTypeRightMouseDragged:
       return Event::RightButton;
   }
 
@@ -73,10 +81,10 @@ KeyModifiers get_modifiers_from_nsevent(NSEvent* event)
 {
   int modifiers = kKeyNoneModifier;
   NSEventModifierFlags nsFlags = event.modifierFlags;
-  if (nsFlags & NSShiftKeyMask) modifiers |= kKeyShiftModifier;
-  if (nsFlags & NSControlKeyMask) modifiers |= kKeyCtrlModifier;
-  if (nsFlags & NSAlternateKeyMask) modifiers |= kKeyAltModifier;
-  if (nsFlags & NSCommandKeyMask) modifiers |= kKeyCmdModifier;
+  if (nsFlags & NSEventModifierFlagShift) modifiers |= kKeyShiftModifier;
+  if (nsFlags & NSEventModifierFlagControl) modifiers |= kKeyCtrlModifier;
+  if (nsFlags & NSEventModifierFlagOption) modifiers |= kKeyAltModifier;
+  if (nsFlags & NSEventModifierFlagCommand) modifiers |= kKeyCmdModifier;
   if (osx_is_key_pressed(kKeySpace)) modifiers |= kKeySpaceModifier;
   return (KeyModifiers)modifiers;
 }
@@ -167,7 +175,13 @@ using namespace she;
 
 - (void)keyDown:(NSEvent*)event
 {
+  g_keyEquivalentUsed = false;
   [super keyDown:event];
+
+  // If a key equivalent used the keyDown event, we don't generate
+  // this she::KeyDown event.
+  if (g_keyEquivalentUsed)
+    return;
 
   KeyScancode scancode = scancode_from_nsevent(event);
   Event ev;
@@ -212,6 +226,10 @@ using namespace she;
     }
   }
 
+  KEY_TRACE("View keyDown: unicode=%d (%c) scancode=%d modifiers=%d\n",
+            ev.unicodeChar(), ev.unicodeChar(),
+            ev.scancode(), ev.modifiers());
+
   if (sendMsg)
     queue_event(ev);
 }
@@ -244,10 +262,10 @@ using namespace she;
 {
   static int lastFlags = 0;
   static int flags[] = {
-    NSShiftKeyMask,
-    NSControlKeyMask,
-    NSAlternateKeyMask,
-    NSCommandKeyMask
+    NSEventModifierFlagShift,
+    NSEventModifierFlagControl,
+    NSEventModifierFlagOption,
+    NSEventModifierFlagCommand
   };
   static KeyScancode scancodes[] = {
     kKeyLShift,
@@ -436,7 +454,7 @@ using namespace she;
     scale = [(OSXWindow*)self.window scale];
 
   if (event.hasPreciseScrollingDeltas) {
-    ev.setPointerType(she::PointerType::Multitouch);
+    ev.setPointerType(she::PointerType::Touchpad);
     ev.setWheelDelta(gfx::Point(-event.scrollingDeltaX / scale,
                                 -event.scrollingDeltaY / scale));
     ev.setPreciseWheel(true);
@@ -467,7 +485,7 @@ using namespace she;
   ev.setMagnification(event.magnification);
   ev.setPosition(get_local_mouse_pos(self, event));
   ev.setModifiers(get_modifiers_from_nsevent(event));
-  ev.setPointerType(she::PointerType::Multitouch);
+  ev.setPointerType(she::PointerType::Touchpad);
   queue_event(ev);
 }
 
@@ -475,9 +493,9 @@ using namespace she;
 {
   if (event.isEnteringProximity == YES) {
     switch (event.pointingDeviceType) {
-      case NSPenPointingDevice: m_pointerType = she::PointerType::Pen; break;
-      case NSCursorPointingDevice: m_pointerType = she::PointerType::Cursor; break;
-      case NSEraserPointingDevice: m_pointerType = she::PointerType::Eraser; break;
+      case NSPointingDeviceTypePen: m_pointerType = she::PointerType::Pen; break;
+      case NSPointingDeviceTypeCursor: m_pointerType = she::PointerType::Cursor; break;
+      case NSPointingDeviceTypeEraser: m_pointerType = she::PointerType::Eraser; break;
       default:
         m_pointerType = she::PointerType::Unknown;
         break;

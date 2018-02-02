@@ -20,6 +20,7 @@
 #include "app/context.h"
 #include "app/context_access.h"
 #include "app/document_undo.h"
+#include "app/i18n/strings.h"
 #include "app/modules/gui.h"
 #include "app/modules/palettes.h"
 #include "app/pref/preferences.h"
@@ -48,6 +49,7 @@
 #include "doc/remap.h"
 #include "doc/slice.h"
 #include "doc/sprite.h"
+#include "fmt/format.h"
 #include "render/dithering.h"
 #include "render/render.h"
 #include "ui/ui.h"
@@ -65,6 +67,7 @@ protected:
   Editor* m_editor;
   tools::Tool* m_tool;
   BrushRef m_brush;
+  gfx::Point m_oldPatternOrigin;
   Document* m_document;
   Sprite* m_sprite;
   Layer* m_layer;
@@ -104,7 +107,8 @@ public:
                const app::Color& bgColor)
     : m_editor(editor)
     , m_tool(tool)
-    , m_brush(App::instance()->contextBar()->activeBrush(m_tool))
+    , m_brush(App::instance()->contextBar()->activeBrush(m_tool, ink))
+    , m_oldPatternOrigin(m_brush->patternOrigin())
     , m_document(document)
     , m_sprite(editor->sprite())
     , m_layer(layer)
@@ -190,6 +194,10 @@ public:
     }
   }
 
+  ~ToolLoopBase() {
+    m_brush->setPatternOrigin(m_oldPatternOrigin);
+  }
+
   // IToolLoop interface
   tools::Tool* getTool() override { return m_tool; }
   Brush* getBrush() override { return m_brush.get(); }
@@ -269,6 +277,10 @@ public:
 
   void updateStatusBar(const char* text) override {
     StatusBar::instance()->setStatusText(0, text);
+  }
+
+  gfx::Point statusBarPositionOffset() override {
+    return -m_editor->mainTilePosition();
   }
 
   render::DitheringMatrix getDitheringMatrix() override {
@@ -531,6 +543,7 @@ public:
 tools::ToolLoop* create_tool_loop(
   Editor* editor,
   Context* context,
+  const tools::Pointer::Button button,
   const bool convertLineToFreehand)
 {
   tools::Tool* tool = editor->getCurrentEditorTool();
@@ -550,7 +563,7 @@ tools::ToolLoop* create_tool_loop(
   // isFloodFill) because we need the original layer source
   // image/pixels to stop the flood-fill algorithm.
   if (ink->isSelection() &&
-      !tool->getPointShape(editor->isSecondaryButton() ? 1: 0)->isFloodFill()) {
+      !tool->getPointShape(button != tools::Pointer::Left ? 1: 0)->isFloodFill()) {
     layer = nullptr;
   }
   else {
@@ -585,24 +598,21 @@ tools::ToolLoop* create_tool_loop(
   app::Color bg = colorbar->getBgColor();
 
   if (!fg.isValid() || !bg.isValid()) {
-    Alert::show(PACKAGE
-                "<<The current selected foreground and/or background color"
-                "<<is out of range. Select a valid color in the color-bar."
-                "||&Close");
+    Alert::show(Strings::alerts_invalid_fg_or_bg_colors());
     return NULL;
   }
 
   // Create the new tool loop
   try {
-    tools::ToolLoop::Button button =
-      (!editor->isSecondaryButton() ? tools::ToolLoop::Left:
-                                      tools::ToolLoop::Right);
+    tools::ToolLoop::Button toolLoopButton =
+      (button == tools::Pointer::Left ? tools::ToolLoop::Left:
+                                        tools::ToolLoop::Right);
 
     tools::Controller* controller =
       (convertLineToFreehand ?
        App::instance()->toolBox()->getControllerById(
          tools::WellKnownControllers::LineFreehand):
-       tool->getController(button));
+       tool->getController(toolLoopButton));
 
     const bool saveLastPoint =
       (ink->isPaint() &&
@@ -615,16 +625,12 @@ tools::ToolLoop* create_tool_loop(
       ink,
       controller,
       editor->document(),
-      button,
+      toolLoopButton,
       fg, bg,
       saveLastPoint);
   }
   catch (const std::exception& ex) {
-    Alert::show(PACKAGE
-                "<<Error drawing ink:"
-                "<<%s"
-                "||&Close",
-                ex.what());
+    Console::showException(ex);
     return NULL;
   }
 }

@@ -254,7 +254,9 @@ bool MovingPixelsState::onMouseDown(Editor* editor, MouseMessage* msg)
 
   // Transform selected pixels
   if (document->isMaskVisible() &&
-      decorator->getTransformHandles(editor)) {
+      decorator->getTransformHandles(editor) &&
+      (!Preferences::instance().selection.modifiersDisableHandles() ||
+       msg->modifiers() == kKeyNoneModifier)) {
     TransformHandles* transfHandles = decorator->getTransformHandles(editor);
 
     // Get the handle covered by the mouse.
@@ -421,7 +423,7 @@ bool MovingPixelsState::onKeyDown(Editor* editor, KeyMessage* msg)
 
     // The escape key drop pixels and deselect the mask.
     if (msg->scancode() == kKeyEsc) { // TODO make this key customizable
-      Command* cmd = CommandsModule::instance()->getCommandByName(CommandId::DeselectMask);
+      Command* cmd = Commands::instance()->byId(CommandId::DeselectMask());
       UIContext::instance()->executeCommand(cmd);
     }
 
@@ -496,21 +498,21 @@ void MovingPixelsState::onBeforeCommandExecution(CommandExecutionEvent& ev)
   }
   // Don't drop pixels if the user zooms/scrolls/picks a color
   // using commands.
-  else if ((command->id() == CommandId::Zoom) ||
-           (command->id() == CommandId::Scroll) ||
-           (command->id() == CommandId::Eyedropper) ||
+  else if ((command->id() == CommandId::Zoom()) ||
+           (command->id() == CommandId::Scroll()) ||
+           (command->id() == CommandId::Eyedropper()) ||
            // DiscardBrush is used by Eyedropper command
-           (command->id() == CommandId::DiscardBrush)) {
+           (command->id() == CommandId::DiscardBrush())) {
     // Do not drop pixels
     return;
   }
   // Intercept the "Cut" or "Copy" command to handle them locally
   // with the current m_pixelsMovement data.
-  else if (command->id() == CommandId::Cut ||
-           command->id() == CommandId::Copy ||
-           command->id() == CommandId::Clear) {
+  else if (command->id() == CommandId::Cut() ||
+           command->id() == CommandId::Copy() ||
+           command->id() == CommandId::Clear()) {
     // Copy the floating image to the clipboard on Cut/Copy.
-    if (command->id() != CommandId::Clear) {
+    if (command->id() != CommandId::Clear()) {
       Document* document = m_editor->document();
       base::UniquePtr<Image> floatingImage;
       base::UniquePtr<Mask> floatingMask;
@@ -522,12 +524,12 @@ void MovingPixelsState::onBeforeCommandExecution(CommandExecutionEvent& ev)
     }
 
     // Clear floating pixels on Cut/Clear.
-    if (command->id() != CommandId::Copy) {
+    if (command->id() != CommandId::Copy()) {
       m_pixelsMovement->trim();
 
       // Should we keep the mask after an Edit > Clear command?
       auto keepMask = PixelsMovement::DontKeepMask;
-      if (command->id() == CommandId::Clear &&
+      if (command->id() == CommandId::Clear() &&
           Preferences::instance().selection.keepSelectionAfterClear()) {
         keepMask = PixelsMovement::KeepMask;
       }
@@ -546,7 +548,7 @@ void MovingPixelsState::onBeforeCommandExecution(CommandExecutionEvent& ev)
   }
   // Flip Horizontally/Vertically commands are handled manually to
   // avoid dropping the floating region of pixels.
-  else if (command->id() == CommandId::Flip) {
+  else if (command->id() == CommandId::Flip()) {
     if (FlipCommand* flipCommand = dynamic_cast<FlipCommand*>(command)) {
       m_pixelsMovement->flipImage(flipCommand->getFlipType());
 
@@ -555,7 +557,7 @@ void MovingPixelsState::onBeforeCommandExecution(CommandExecutionEvent& ev)
     }
   }
   // Rotate is quite simple, we can add the angle to the current transformation.
-  else if (command->id() == CommandId::Rotate) {
+  else if (command->id() == CommandId::Rotate()) {
     if (RotateCommand* rotate = dynamic_cast<RotateCommand*>(command)) {
       if (rotate->flipMask()) {
         m_pixelsMovement->rotate(rotate->angle());

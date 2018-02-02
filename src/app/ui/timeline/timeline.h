@@ -115,10 +115,16 @@ namespace app {
     gfx::Point viewScroll() const override;
     void setViewScroll(const gfx::Point& pt) override;
 
+///???????????????
     void manualUpdateAniControls();
+///   
+    void lockRange();
+    void unlockRange();
 
   protected:
     bool onProcessMessage(ui::Message* msg) override;
+    void onInitTheme(ui::InitThemeEvent& ev) override;
+    void onInvalidateRegion(const gfx::Region& region) override;
     void onSizeHint(ui::SizeHintEvent& ev) override;
     void onResize(ui::ResizeEvent& ev) override;
     void onPaint(ui::PaintEvent& ev) override;
@@ -314,8 +320,11 @@ namespace app {
     void updateCelOverlayBounds(const Hit& hit);
     void drawCelOverlay(ui::Graphics* g);
     void onThumbnailsPrefChange();
-    void setZoom(double zoom);
-    void setZoomAndUpdate(double zoom);
+    void setZoom(const double zoom);
+    void setZoomAndUpdate(const double zoom,
+                          const bool updatePref);
+
+    double zoom() const;
 
     ui::ScrollBar m_hbar;
     ui::ScrollBar m_vbar;
@@ -328,6 +337,7 @@ namespace app {
     Sprite* m_sprite;
     Layer* m_layer;
     frame_t m_frame;
+    int m_rangeLocks;
     Range m_range;
     Range m_startRange;
     Range m_dropRange;
@@ -358,6 +368,7 @@ namespace app {
     // TODO merge this with the marching ants of the sprite editor (ui::Editor)
     ui::Timer m_clipboard_timer;
     int m_offset_count;
+    bool m_redrawMarchingAntsOnly;
 
     bool m_scroll;   // True if the drag-and-drop operation is a scroll operation.
     bool m_copy;     // True if the drag-and-drop operation is a copy.
@@ -378,6 +389,19 @@ namespace app {
       layer_t activeRelativeLayer;
       frame_t activeRelativeFrame;
     } m_moveRangeData;
+  };
+
+  class LockTimelineRange {
+  public:
+    LockTimelineRange(Timeline* timeline)
+      : m_timeline(timeline) {
+      m_timeline->lockRange();
+    }
+    ~LockTimelineRange() {
+      m_timeline->unlockRange();
+    }
+  private:
+    Timeline* m_timeline;
   };
 
 } // namespace app

@@ -39,6 +39,7 @@ if(WITH_WEBP_SUPPORT)
 endif()
 
 if(NOT USE_SHARED_GIFLIB)
+  set(GIFLIB_UTILS OFF CACHE BOOL "Build giflib utils")
   add_subdirectory(giflib)
 endif()
 
@@ -87,6 +88,7 @@ endif()
 
 add_subdirectory(harfbuzz-cmake)
 add_subdirectory(simpleini)
+add_subdirectory(fmt)
 
 # Add cmark without tests
 if(NOT USE_SHARED_CMARK)
@@ -115,6 +117,42 @@ add_subdirectory(json11)
 set(ENABLE_TEST OFF CACHE BOOL "Enable unit and regression tests")
 set(ENABLE_COVERAGE OFF CACHE BOOL "Enable code coverage (GCC only, automatically sets ENABLE_TEST to ON)")
 set(ENABLE_LZMA OFF CACHE BOOL "Enable the use of the system LZMA library if found")
+set(ENABLE_CNG OFF CACHE BOOL "Enable the use of CNG(Crypto Next Generation)")
 add_subdirectory(libarchive)
 target_include_directories(archive_static INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libarchive/libarchive>)
+
+# benchmark
+if(ENABLE_BENCHMARKS)
+  add_subdirectory(benchmark)
+endif()
+
+# mujs
+add_library(mujs
+  mujs/jsarray.c
+  mujs/jsboolean.c
+  mujs/jsbuiltin.c
+  mujs/jscompile.c
+  mujs/jsdate.c
+  mujs/jsdtoa.c
+  mujs/jsdump.c
+  mujs/jserror.c
+  mujs/jsfunction.c
+  mujs/jsgc.c
+  mujs/jsintern.c
+  mujs/jslex.c
+  mujs/jsmath.c
+  mujs/jsnumber.c
+  mujs/jsobject.c
+  mujs/json.c
+  mujs/jsparse.c
+  mujs/jsproperty.c
+  mujs/jsregexp.c
+  mujs/jsrun.c
+  mujs/jsstate.c
+  mujs/jsstring.c
+  mujs/jsvalue.c
+  mujs/regexp.c
+  mujs/utf.c
+  mujs/utftype.c)
+target_include_directories(mujs PUBLIC .)

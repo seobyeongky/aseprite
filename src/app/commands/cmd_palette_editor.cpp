@@ -10,7 +10,9 @@
 
 #include "app/commands/command.h"
 #include "app/commands/params.h"
+#include "app/i18n/strings.h"
 #include "app/ui/color_bar.h"
+#include "fmt/format.h"
 
 namespace app {
 
@@ -23,42 +25,30 @@ protected:
   void onLoadParams(const Params& params) override;
   bool onChecked(Context* context) override;
   void onExecute(Context* context) override;
+  std::string onGetFriendlyName() const override;
 
 private:
-  bool m_open;
-  bool m_close;
-  bool m_switch;
+  bool m_edit;
+  bool m_popup;
   bool m_background;
 };
 
 PaletteEditorCommand::PaletteEditorCommand()
-  : Command("PaletteEditor",
-            "Edit Palette",
-            CmdRecordableFlag)
+  : Command(CommandId::PaletteEditor(), CmdRecordableFlag)
 {
-  m_open = true;
-  m_close = false;
-  m_switch = false;
+  m_edit = true;
+  m_popup = false;
   m_background = false;
 }
 
 void PaletteEditorCommand::onLoadParams(const Params& params)
 {
-  std::string target = params.get("target");
-  if (target == "foreground") m_background = false;
-  else if (target == "background") m_background = true;
-
-  std::string open_str = params.get("open");
-  if (open_str == "true") m_open = true;
-  else m_open = false;
-
-  std::string close_str = params.get("close");
-  if (close_str == "true") m_close = true;
-  else m_close = false;
-
-  std::string switch_str = params.get("switch");
-  if (switch_str == "true") m_switch = true;
-  else m_switch = false;
+  m_edit =
+    (params.empty() ||
+     params.get("edit") == "switch" ||
+     params.get("switch") == "true"); // "switch" for backward compatibility
+  m_popup = (!params.get("popup").empty());
+  m_background = (params.get("popup") == "background");
 }
 
 bool PaletteEditorCommand::onChecked(Context* context)
@@ -68,16 +58,53 @@ bool PaletteEditorCommand::onChecked(Context* context)
 
 void PaletteEditorCommand::onExecute(Context* context)
 {
-  bool state = ColorBar::instance()->inEditMode();
+  auto colorBar = ColorBar::instance();
+  bool editMode = colorBar->inEditMode();
+  ColorButton* button =
+    (m_background ?
+     colorBar->bgColorButton():
+     colorBar->fgColorButton());
 
-  if (m_switch)
-    state = !state;
-  else if (m_open)
-    state = true;
-  else if (m_close)
-    state = false;
+  // Switch edit mode
+  if (m_edit && !m_popup) {
+    colorBar->setEditMode(!editMode);
+  }
+  // Switch popup
+  else if (!m_edit && m_popup) {
+    if (button->isPopupVisible())
+      button->closePopup();
+    else
+      button->openPopup(true);
+  }
+  // Switch both (the popup visibility is used to switch both states)
+  else if (m_edit && m_popup) {
+    if (button->isPopupVisible()) {
+      colorBar->setEditMode(false);
+      button->closePopup();
+    }
+    else {
+      colorBar->setEditMode(true);
+      button->openPopup(true);
+    }
+  }
+}
 
-  ColorBar::instance()->setEditMode(state);
+std::string PaletteEditorCommand::onGetFriendlyName() const
+{
+  std::string edit, plus, popup;
+  if (m_edit) {
+    edit = Strings::commands_PaletteEditor_Edit();
+  }
+  if (m_edit && m_popup) {
+    plus = Strings::commands_PaletteEditor_And();
+  }
+  if (m_popup) {
+    if (m_background)
+      popup = Strings::commands_PaletteEditor_BgPopup();
+    else
+      popup = Strings::commands_PaletteEditor_FgPopup();
+  }
+  return fmt::format(getBaseFriendlyName(), edit, plus, popup);
 }
 
 Command* CommandFactory::createPaletteEditorCommand()

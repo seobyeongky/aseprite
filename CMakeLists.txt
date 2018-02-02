@@ -32,6 +32,9 @@ endif()
 # Note: This needs to be done before the project command
 set(CMAKE_CONFIGURATION_TYPES "${CMAKE_BUILD_TYPE}" CACHE INTERNAL "internal")
 
+set(CMAKE_USER_MAKE_RULES_OVERRIDE ${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_flag_overrides.cmake)
+set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX ${CMAKE_CURRENT_SOURCE_DIR}/cmake/cxx_flag_overrides.cmake)
+
 # Aseprite project
 project(aseprite C CXX)
 
@@ -56,7 +59,6 @@ option(WITH_DEPRECATED_GLIB_SUPPORT "Enable support for older glib versions" off
 option(WITH_DESKTOP_INTEGRATION     "Enable desktop integration modules" off)
 option(WITH_QT_THUMBNAILER          "Enable kde5/qt5 thumnailer" off)
 
-option(USE_STATIC_LIBC    "Use static version of C and C++ runtimes" off)
 option(USE_SHARED_CMARK   "Use your installed copy of cmark" off)
 option(USE_SHARED_CURL    "Use your installed copy of curl" off)
 option(USE_SHARED_GIFLIB  "Use your installed copy of giflib" off)
@@ -73,9 +75,11 @@ option(ENABLE_MEMLEAK     "Enable memory-leaks detector (only for developers)" o
 option(ENABLE_UPDATER     "Enable automatic check for updates" on)
 option(ENABLE_SCRIPTING   "Compile with scripting support" on)
 option(ENABLE_WEBSERVER   "Enable support to run a webserver (for HTML5 gamedev)" off)
-option(ENABLE_TESTS       "Enable the unit tests" off)
+option(ENABLE_TESTS       "Compile unit tests" off)
+option(ENABLE_BENCHMARKS  "Compile benchmarks" off)
 option(ENABLE_TRIAL_MODE  "Compile the trial version" off)
 option(ENABLE_STEAM       "Compile with Steam library" off)
+option(ENABLE_DEVMODE     "Compile vesion for developers" off)
 option(FULLSCREEN_PLATFORM "Enable fullscreen by default" off)
 set(CUSTOM_WEBSITE_URL "" CACHE STRING "Enable custom local webserver to check updates")
 
@@ -107,7 +111,7 @@ if(CMAKE_COMPILER_IS_GNUCC)
 endif()
 
 if(MSVC)
-    set(CMAKE_C_FLAGS_PROFILE "/MD /Zi /Ox /Gd"
+    set(CMAKE_C_FLAGS_PROFILE "/MT /Zi /Ox /Gd"
         CACHE STRING "Profiling C flags")
     set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_C_FLAGS_PROFILE}"
         CACHE STRING "Profiling C++ flags")
@@ -149,7 +153,6 @@ set(HARFBUZZ_DIR        ${CMAKE_SOURCE_DIR}/third_party/harfbuzz)
 set(SIMPLEINI_DIR       ${CMAKE_SOURCE_DIR}/third_party/simpleini)
 set(TINYXML_DIR         ${CMAKE_SOURCE_DIR}/third_party/tinyxml)
 set(ZLIB_DIR            ${CMAKE_SOURCE_DIR}/third_party/zlib)
-set(DUKTAPE_DIR         ${CMAKE_SOURCE_DIR}/third_party/duktape)
 
 # Search in the "cmake" directory for additional CMake modules.
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -165,18 +168,6 @@ if(CMAKE_BUILD_TYPE STREQUAL Debug)
   add_definitions(-DDEBUGMODE -D_DEBUG)
 else()
   add_definitions(-DNDEBUG)
-endif()
-
-if(MSVC)
-  if(USE_STATIC_LIBC)
-    if(CMAKE_BUILD_TYPE STREQUAL Debug)
-      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -MTd")
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -MTd")
-    else()
-      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -MT")
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -MT")
-    endif()
-  endif()
 endif()
 
 if(NOT WIN32 AND NOT APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -414,8 +405,9 @@ if(WIN32)
     kernel32 user32 gdi32 comdlg32 ole32 winmm
     shlwapi psapi wininet comctl32 dbghelp)
 
-  # Windows XP is the minimum supported platform.
-  add_definitions(-D_WIN32_WINNT=0x0501 -DWINVER=0x0501)
+  # Windows Vista is the minimum supported platform but we're defining
+  # Windows 10 to get the all constant/structure definitions.
+  add_definitions(-D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00)
 
   # We need Unicode support
   add_definitions(-DUNICODE -D_UNICODE)
@@ -460,10 +452,6 @@ include_directories(src)
 add_definitions(-DHAVE_CONFIG_H)
 if(ENABLE_MEMLEAK)
   add_definitions(-DLAF_MEMLEAK)
-endif()
-
-if(NOT USE_STATIC_LIBC)
-  set(gtest_force_shared_crt ON CACHE BOOL "Use shared (DLL) run-time lib even when Google Test is built as static lib.")
 endif()
 
 set(LAF_WITH_TESTS ${ENABLE_TESTS} CACHE BOOL "Enable LAF tests")

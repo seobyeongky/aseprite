@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -14,12 +14,12 @@
 #include "app/util/new_image_from_mask.h"
 #include "base/fs.h"
 #include "doc/cel.h"
+#include "doc/document.h"
+#include "doc/layer.h"
 #include "doc/mask.h"
 #include "doc/palette.h"
-#include "doc/layer.h"
 #include "doc/site.h"
 #include "doc/sprite.h"
-#include "doc/document.h"
 
 #include <cstdio>
 
@@ -38,9 +38,7 @@ protected:
 };
 
 NewSpriteFromSelectionCommand::NewSpriteFromSelectionCommand()
-  : Command("NewSpriteFromSelection",
-            "New Sprite From Selection",
-            CmdUIOnlyFlag)
+  : Command(CommandId::NewSpriteFromSelection(), CmdUIOnlyFlag)
 {
 }
 

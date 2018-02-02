@@ -153,7 +153,6 @@ namespace app {
 
     // Draws the sprite taking care of the whole clipping region.
     void drawSpriteClipped(const gfx::Region& updateRegion);
-    void drawSpriteUnclippedRect(ui::Graphics* g, const gfx::Rect& rc);
 
     void flashCurrentLayer();
 
@@ -180,6 +179,11 @@ namespace app {
     // Returns the visible area of the active sprite.
     gfx::Rect getVisibleSpriteBounds();
 
+    gfx::Size canvasSize() const;
+    gfx::Point mainTilePosition() const;
+    void expandRegionByTiledMode(gfx::Region& rgn,
+                                 const bool withProj) const;
+
     // Changes the scroll to see the given point as the center of the editor.
     void centerInSpritePoint(const gfx::Point& spritePos);
 
@@ -193,13 +197,17 @@ namespace app {
 
     tools::ToolLoopModifiers getToolLoopModifiers() const { return m_toolLoopModifiers; }
     bool isAutoSelectLayer() const;
-    bool isSecondaryButton() const { return m_secondaryButton; }
 
     // Returns true if we are able to draw in the current doc/sprite/layer/cel.
     bool canDraw();
 
     // Returns true if the cursor is inside the active mask/selection.
     bool isInsideSelection();
+
+    // Returns true if the cursor is inside the selection and the
+    // selection mode is the default one which prioritizes and easy
+    // way to move the selection.
+    bool canStartMovingSelectionPixels();
 
     // Returns the element that will be modified if the mouse is used
     // in the given position.
@@ -261,7 +269,9 @@ namespace app {
 
     // Returns true if the Shift key to draw straight lines with a
     // freehand tool is pressed.
-    bool startStraightLineWithFreehandTool();
+    bool startStraightLineWithFreehandTool(const ui::MouseMessage* msg);
+
+    static void registerCommands();
 
   protected:
     bool onProcessMessage(ui::Message* msg) override;
@@ -271,11 +281,14 @@ namespace app {
     void onInvalidateRegion(const gfx::Region& region) override;
     void onFgColorChange();
     void onContextBarBrushChange();
+    void onTiledModeBeforeChange();
+    void onTiledModeChange();
     void onShowExtrasChange();
 
     // DocumentObserver impl
     void onExposeSpritePixels(doc::DocumentEvent& ev) override;
     void onSpritePixelRatioChanged(doc::DocumentEvent& ev) override;
+    void onBeforeRemoveLayer(DocumentEvent& ev) override;
     void onRemoveCel(DocumentEvent& ev) override;
     void onAddFrameTag(DocumentEvent& ev) override;
     void onRemoveFrameTag(DocumentEvent& ev) override;
@@ -289,6 +302,8 @@ namespace app {
     void updateToolByTipProximity(ui::PointerType pointerType);
     void updateToolLoopModifiersIndicators();
 
+    void drawBackground(ui::Graphics* g);
+    void drawSpriteUnclippedRect(ui::Graphics* g, const gfx::Rect& rc);
     void drawMaskSafe();
     void drawMask(ui::Graphics* g);
     void drawGrid(ui::Graphics* g, const gfx::Rect& spriteBounds, const gfx::Rect& gridBounds,
@@ -356,6 +371,7 @@ namespace app {
     obs::scoped_connection m_showExtrasConn;
 
     // Slots listeing document preferences.
+    obs::scoped_connection m_tiledConnBefore;
     obs::scoped_connection m_tiledConn;
     obs::scoped_connection m_gridConn;
     obs::scoped_connection m_pixelGridConn;
@@ -389,6 +405,10 @@ namespace app {
     // Focused tag band. Used by the Timeline to save/restore the
     // focused tag band for each sprite/editor.
     int m_tagFocusBand;
+
+    // Used to restore scroll when the tiled mode is changed.
+    // TODO could we avoid one extra field just to do this?
+    gfx::Point m_oldMainTilePos;
 
     static doc::ImageBufferPtr m_renderBuffer;
 

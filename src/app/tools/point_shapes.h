@@ -4,6 +4,8 @@
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
 
+#include "app/util/wrap_point.h"
+
 namespace app {
 namespace tools {
 
@@ -51,12 +53,10 @@ public:
     y += m_brush->bounds().y;
 
     if (m_firstPoint) {
-      m_firstPoint = false;
-      if (m_brush->type() == kImageBrushType) {
-        if (m_brush->pattern() == BrushPattern::ALIGNED_TO_DST ||
-            m_brush->pattern() == BrushPattern::PAINT_BRUSH) {
-          m_brush->setPatternOrigin(gfx::Point(x, y));
-        }
+      if ((m_brush->type() == kImageBrushType) &&
+          (m_brush->pattern() == BrushPattern::ALIGNED_TO_DST ||
+           m_brush->pattern() == BrushPattern::PAINT_BRUSH)) {
+        m_brush->setPatternOrigin(gfx::Point(x, y));
       }
     }
     else {
@@ -66,10 +66,14 @@ public:
       }
     }
 
+    loop->getInk()->prepareForPointShape(loop, m_firstPoint, x, y);
+
     for (auto scanline : *m_compressedImage) {
       int u = x+scanline.x;
       doInkHline(u, y+scanline.y, u+scanline.w-1, loop);
     }
+
+    m_firstPoint = false;
   }
 
   void getModifiedArea(ToolLoop* loop, int x, int y, Rect& area) override {
@@ -85,12 +89,18 @@ public:
   bool isFloodFill() override { return true; }
 
   void transformPoint(ToolLoop* loop, int x, int y) override {
+    const doc::Image* srcImage = loop->getFloodFillSrcImage();
+    gfx::Point pt = wrap_point(loop->getTiledMode(),
+                               gfx::Size(srcImage->width(),
+                                         srcImage->height()),
+                               gfx::Point(x, y));
+
     doc::algorithm::floodfill(
-      loop->getFloodFillSrcImage(),
+      srcImage,
       (loop->useMask() ? loop->getMask(): nullptr),
-      x, y,
-      floodfillBounds(loop, x, y),
-      get_pixel(loop->getFloodFillSrcImage(), x, y),
+      pt.x, pt.y,
+      floodfillBounds(loop, pt.x, pt.y),
+      get_pixel(srcImage, pt.x, pt.y),
       loop->getTolerance(),
       loop->getContiguous(),
       loop, (AlgoHLine)doInkHline);

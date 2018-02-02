@@ -32,9 +32,7 @@ namespace app {
 using namespace ui;
 
 EyedropperCommand::EyedropperCommand()
-  : Command("Eyedropper",
-            "Eyedropper",
-            CmdUIOnlyFlag)
+  : Command(CommandId::Eyedropper(), CmdUIOnlyFlag)
 {
   m_background = false;
 }
@@ -195,8 +193,8 @@ void EyedropperCommand::onExecute(Context* context)
     return;
 
   // Discard current image brush
-  {
-    Command* discardBrush = CommandsModule::instance()->getCommandByName(CommandId::DiscardBrush);
+  if (Preferences::instance().eyedropper.discardBrush()) {
+    Command* discardBrush = Commands::instance()->byId(CommandId::DiscardBrush());
     context->executeCommand(discardBrush);
   }
 
@@ -204,6 +202,7 @@ void EyedropperCommand::onExecute(Context* context)
   gfx::PointF pixelPos = editor->screenToEditorF(ui::get_mouse_position());
 
   // Start with fg/bg color
+  DisableColorBarEditMode disable;
   Preferences& pref = Preferences::instance();
   app::Color color =
     m_background ? pref.colorBar.bgColor():

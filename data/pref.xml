@@ -32,6 +32,7 @@
       <value id="CHECKED_8x8" value="1" />
       <value id="CHECKED_4x4" value="2" />
       <value id="CHECKED_2x2" value="3" />
+      <value id="CHECKED_1x1" value="4" />
     </enum>
     <enum id="StopAtGrid">
       <value id="NEVER" value="0" />
@@ -109,9 +110,10 @@
       <option id="data_recovery_period" type="double" default="2.0" />
       <option id="show_full_path" type="bool" default="true" />
       <option id="timeline_position" type="TimelinePosition" default="TimelinePosition::BOTTOM" />
+      <option id="show_menu_bar" type="bool" default="true" />
     </section>
     <section id="undo" text="Undo">
-      <option id="size_limit" type="int" default="64" />
+      <option id="size_limit" type="int" default="0" />
       <option id="goto_modified" type="bool" default="true" />
       <option id="allow_nonlinear_history" type="bool" default="false" />
     </section>
@@ -124,6 +126,7 @@
       <option id="auto_scroll" type="bool" default="true" />
       <option id="right_click_mode" type="RightClickMode" default="RightClickMode::PAINT_BGCOLOR" migrate="Options.RightClickMode" />
       <option id="auto_select_layer" type="bool" default="false" migrate="Options.AutoSelectLayer" />
+      <option id="straight_line_preview" type="bool" default="true" />
       <option id="play_once" type="bool" default="false" />
       <option id="play_all" type="bool" default="false" />
     </section>
@@ -170,6 +173,7 @@
       <option id="wait_days" type="double" default="0.0" migrate="Updater.WaitDays" />
       <option id="last_check" type="int" default="0" migrate="Updater.LastCheck" />
       <option id="uuid" type="std::string" migrate="Updater.Uuid" />
+      <option id="current_version" type="std::string" />
       <option id="new_version" type="std::string" />
       <option id="new_url" type="std::string" />
     </section>
@@ -191,6 +195,8 @@
     <section id="selection">
       <option id="mode" type="SelectionMode" default="SelectionMode::DEFAULT" />
       <option id="move_edges" type="bool" default="true" />
+      <option id="modifiers_disable_handles" type="bool" default="true" />
+      <option id="move_on_add_mode" type="bool" default="true" />
       <option id="pivot_visibility" type="bool" default="false" />
       <option id="pivot_position" type="PivotPosition" default="PivotPosition::CENTER" />
       <option id="opaque" type="bool" default="false" />
@@ -207,6 +213,7 @@
     <section id="eyedropper" text="Editor">
       <option id="channel" type="EyedropperChannel" default="EyedropperChannel::COLOR_ALPHA" />
       <option id="sample" type="EyedropperSample" default="EyedropperSample::ALL_LAYERS" />
+      <option id="discard_brush" type="bool" default="false" />
     </section>
     <section id="shared">
       <option id="share_ink" type="bool" default="false" />
@@ -227,9 +234,6 @@
     </section>
     <section id="symmetry_mode">
       <option id="enabled" type="bool" default="false" />
-    </section>
-    <section id="thumbnails">
-      <option id="visible_options" type="bool" default="false" />
     </section>
     <section id="perf">
       <option id="show_render_time" type="bool" default="false" />
@@ -338,6 +342,7 @@
       <option id="border_padding" type="int" default="0" />
       <option id="shape_padding" type="int" default="0" />
       <option id="inner_padding" type="int" default="0" />
+      <option id="trim" type="bool" default="false" />
       <option id="open_generated" type="bool" default="false" />
       <option id="layer" type="std::string" />
       <option id="frame_tag" type="std::string" />

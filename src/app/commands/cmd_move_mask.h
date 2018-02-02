@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -9,23 +9,13 @@
 #pragma once
 
 #include "app/commands/command.h"
+#include "app/commands/move_thing.h"
 
 namespace app {
 
   class MoveMaskCommand : public Command {
   public:
     enum Target { Boundaries, Content };
-    enum Direction { Left, Up, Right, Down, }; // TODO join this enum with scroll command
-    enum Units {
-      Pixel,
-      TileWidth,
-      TileHeight,
-      ZoomedPixel,
-      ZoomedTileWidth,
-      ZoomedTileHeight,
-      ViewportWidth,
-      ViewportHeight
-    };
 
     MoveMaskCommand();
     Command* clone() const override { return new MoveMaskCommand(*this); }
@@ -34,6 +24,7 @@ namespace app {
     gfx::Point getDelta(Context* context) const;
 
   protected:
+    bool onNeedsParams() const override { return true; }
     void onLoadParams(const Params& params) override;
     bool onEnabled(Context* context) override;
     void onExecute(Context* context) override;
@@ -41,9 +32,7 @@ namespace app {
 
   private:
     Target m_target;
-    Direction m_direction;
-    Units m_units;
-    int m_quantity;
+    MoveThing m_moveThing;
     bool m_wrap;
   };
 

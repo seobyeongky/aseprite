@@ -14,6 +14,7 @@
 #include "doc/frame.h"
 #include "filters/tiled_mode.h"
 #include "gfx/point.h"
+#include "gfx/rect.h"
 
 namespace gfx {
   class Region;
@@ -228,6 +229,7 @@ namespace app {
       virtual void updateDirtyArea() = 0;
 
       virtual void updateStatusBar(const char* text) = 0;
+      virtual gfx::Point statusBarPositionOffset() = 0;
 
       // For gradients
       virtual render::DitheringMatrix getDitheringMatrix() = 0;

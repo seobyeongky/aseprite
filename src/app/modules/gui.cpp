@@ -9,13 +9,16 @@
 #endif
 
 #include "app/app.h"
+#include "app/app_menus.h"
 #include "app/commands/cmd_open_file.h"
 #include "app/commands/command.h"
 #include "app/commands/commands.h"
 #include "app/commands/params.h"
 #include "app/console.h"
+#include "app/crash/data_recovery.h"
 #include "app/document.h"
 #include "app/ini_file.h"
+#include "app/modules/editors.h"
 #include "app/modules/gfx.h"
 #include "app/modules/gui.h"
 #include "app/modules/palettes.h"
@@ -72,10 +75,13 @@ static struct {
 //////////////////////////////////////////////////////////////////////
 
 class CustomizedGuiManager : public Manager
-                           , public LayoutIO
-{
+                           , public LayoutIO {
 protected:
   bool onProcessMessage(Message* msg) override;
+#if ENABLE_DEVMODE
+  bool onProcessDevModeKeyDown(KeyMessage* msg);
+#endif
+  void onInitTheme(InitThemeEvent& ev) override;
   LayoutIO* onGetLayoutIO() override { return this; }
   void onNewDisplayConfiguration() override;
 
@@ -155,9 +161,10 @@ static bool create_main_display(bool gpuAccel,
 // Initializes GUI.
 int init_module_gui()
 {
+  auto& pref = Preferences::instance();
   bool maximized = false;
   std::string lastError = "Unknown error";
-  bool gpuAccel = Preferences::instance().general.gpuAcceleration();
+  bool gpuAccel = pref.general.gpuAcceleration();
 
   if (!create_main_display(gpuAccel, maximized, lastError)) {
     // If we've created the display with hardware acceleration,
@@ -167,7 +174,7 @@ int init_module_gui()
          int(she::Capabilities::GpuAccelerationSwitch)) == int(she::Capabilities::GpuAccelerationSwitch)) {
       if (create_main_display(false, maximized, lastError)) {
         // Disable hardware acceleration
-        Preferences::instance().general.gpuAcceleration(false);
+        pref.general.gpuAcceleration(false);
       }
     }
   }
@@ -184,7 +191,7 @@ int init_module_gui()
 
   // Setup the GUI theme for all widgets
   gui_theme = new SkinTheme;
-  ui::set_theme(gui_theme);
+  ui::set_theme(gui_theme, pref.general.uiScale());
 
   if (maximized)
     main_display->maximize();
@@ -203,7 +210,7 @@ void exit_module_gui()
   delete manager;
 
   // Now we can destroy theme
-  ui::set_theme(nullptr);
+  ui::set_theme(nullptr, ui::guiscale());
   delete gui_theme;
 
   main_display->dispose();
@@ -277,6 +284,7 @@ void save_window_pos(Widget* window, const char *section)
   set_config_rect(section, "WindowPos", window->bounds());
 }
 
+// TODO Replace this with new theme styles
 Widget* setup_mini_font(Widget* widget)
 {
   SkinPropertyPtr skinProp = get_skin_property(widget);
@@ -284,6 +292,7 @@ Widget* setup_mini_font(Widget* widget)
   return widget;
 }
 
+// TODO Replace this with new theme styles
 Widget* setup_mini_look(Widget* widget)
 {
   SkinPropertyPtr skinProp = get_skin_property(widget);
@@ -313,7 +322,7 @@ bool CustomizedGuiManager::onProcessMessage(Message* msg)
     case kCloseDisplayMessage:
       {
         // Execute the "Exit" command.
-        Command* command = CommandsModule::instance()->getCommandByName(CommandId::Exit);
+        Command* command = Commands::instance()->byId(CommandId::Exit());
         UIContext::instance()->executeCommand(command);
       }
       break;
@@ -356,34 +365,11 @@ bool CustomizedGuiManager::onProcessMessage(Message* msg)
       }
       break;
 
-    case kKeyDownMessage: {
-#ifdef _DEBUG
-      auto keymsg = static_cast<KeyMessage*>(msg);
-
-      // Ctrl+Shift+Q generates a crash (useful to test the anticrash feature)
-      if (msg->ctrlPressed() &&
-          msg->shiftPressed() &&
-          keymsg->scancode() == kKeyQ) {
-        int* p = nullptr;
-        *p = 0;
-      }
-
-#ifdef ENABLE_DATA_RECOVERY
-      // Ctrl+Shift+R recover active sprite from the backup store
-      if (msg->ctrlPressed() &&
-          msg->shiftPressed() &&
-          keymsg->scancode() == kKeyR &&
-          App::instance()->dataRecovery() &&
-          App::instance()->dataRecovery()->activeSession() &&
-          current_editor &&
-          current_editor->document()) {
-        App::instance()
-          ->dataRecovery()
-          ->activeSession()
-          ->restoreBackupById(current_editor->document()->id());
-      }
-#endif  // ENABLE_DATA_RECOVERY
-#endif  // _DEBUG
+    case kKeyDownMessage:
+#if ENABLE_DEVMODE
+      if (onProcessDevModeKeyDown(static_cast<KeyMessage*>(msg)))
+        return true;
+#endif  // ENABLE_DEVMODE
 
       // Call base impl to check if there is a foreground window as
       // top level that needs keys. (In this way we just do not
@@ -443,22 +429,13 @@ bool CustomizedGuiManager::onProcessMessage(Message* msg)
               Command* command = key->command();
 
               // Commands are executed only when the main window is
-              // the current window running at foreground.
-              for (auto childWidget : children()) {
-                Window* child = static_cast<Window*>(childWidget);
-
-                // There are a foreground window executing?
-                if (child->isForeground()) {
-                  break;
-                }
-                // Is it the desktop and the top-window=
-                else if (child->isDesktop() && child == App::instance()->mainWindow()) {
-                  // OK, so we can execute the command represented
-                  // by the pressed-key in the message...
-                  UIContext::instance()->executeCommand(
-                    command, key->params());
-                  return true;
-                }
+              // the current window running.
+              if (getForegroundWindow() == App::instance()->mainWindow()) {
+                // OK, so we can execute the command represented
+                // by the pressed-key in the message...
+                UIContext::instance()->executeCommand(
+                  command, key->params());
+                return true;
               }
               break;
             }
@@ -474,7 +451,6 @@ bool CustomizedGuiManager::onProcessMessage(Message* msg)
         }
       }
       break;
-    }
 
     case kTimerMessage:
       if (static_cast<TimerMessage*>(msg)->timer() == defered_invalid_timer) {
@@ -487,6 +463,97 @@ bool CustomizedGuiManager::onProcessMessage(Message* msg)
   }
 
   return Manager::onProcessMessage(msg);
+}
+
+#if ENABLE_DEVMODE
+bool CustomizedGuiManager::onProcessDevModeKeyDown(KeyMessage* msg)
+{
+  // Ctrl+Shift+Q generates a crash (useful to test the anticrash feature)
+  if (msg->ctrlPressed() &&
+      msg->shiftPressed() &&
+      msg->scancode() == kKeyQ) {
+    int* p = nullptr;
+    *p = 0;      // *Crash*
+    return true; // This line should not be executed anyway
+  }
+
+  // F1 switches screen/UI scaling
+  if (msg->scancode() == kKeyF1) {
+    try {
+      she::Display* display = getDisplay();
+      int screenScale = display->scale();
+      int uiScale = ui::guiscale();
+
+      if (msg->shiftPressed()) {
+        if (screenScale == 2 && uiScale == 1) {
+          screenScale = 1;
+          uiScale = 1;
+        }
+        else if (screenScale == 1 && uiScale == 1) {
+          screenScale = 1;
+          uiScale = 2;
+        }
+        else if (screenScale == 1 && uiScale == 2) {
+          screenScale = 2;
+          uiScale = 1;
+        }
+      }
+      else {
+        if (screenScale == 2 && uiScale == 1) {
+          screenScale = 1;
+          uiScale = 2;
+        }
+        else if (screenScale == 1 && uiScale == 2) {
+          screenScale = 1;
+          uiScale = 1;
+        }
+        else if (screenScale == 1 && uiScale == 1) {
+          screenScale = 2;
+          uiScale = 1;
+        }
+      }
+
+      if (uiScale != ui::guiscale()) {
+        ui::set_theme(ui::get_theme(), uiScale);
+      }
+      if (screenScale != display->scale()) {
+        display->setScale(screenScale);
+        setDisplay(display);
+      }
+    }
+    catch (const std::exception& ex) {
+      Console::showException(ex);
+    }
+    return true;
+  }
+
+#ifdef ENABLE_DATA_RECOVERY
+  // Ctrl+Shift+R recover active sprite from the backup store
+  if (msg->ctrlPressed() &&
+      msg->shiftPressed() &&
+      msg->scancode() == kKeyR &&
+      App::instance()->dataRecovery() &&
+      App::instance()->dataRecovery()->activeSession() &&
+      current_editor &&
+      current_editor->document()) {
+    App::instance()
+      ->dataRecovery()
+      ->activeSession()
+      ->restoreBackupById(current_editor->document()->id());
+    return true;
+  }
+#endif  // ENABLE_DATA_RECOVERY
+
+  return false;
+}
+#endif  // ENABLE_DEVMODE
+
+void CustomizedGuiManager::onInitTheme(InitThemeEvent& ev)
+{
+  Manager::onInitTheme(ev);
+
+  // Update the theme on all menus
+  AppMenus::instance()->initTheme();
 }
 
 void CustomizedGuiManager::onNewDisplayConfiguration()

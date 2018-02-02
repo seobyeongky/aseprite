@@ -15,11 +15,12 @@
 #include "app/commands/params.h"
 #include "app/context_access.h"
 #include "app/extensions.h"
+#include "app/i18n/strings.h"
 #include "app/load_matrix.h"
 #include "app/modules/editors.h"
 #include "app/modules/gui.h"
 #include "app/modules/palettes.h"
-#include "app/render_task_job.h"
+#include "app/sprite_job.h"
 #include "app/transaction.h"
 #include "app/ui/dithering_selector.h"
 #include "app/ui/editor/editor.h"
@@ -28,6 +29,7 @@
 #include "base/thread.h"
 #include "doc/image.h"
 #include "doc/sprite.h"
+#include "fmt/format.h"
 #include "render/dithering_algorithm.h"
 #include "render/ordered_dither.h"
 #include "render/quantization.h"
@@ -348,9 +350,7 @@ private:
 };
 
 ChangePixelFormatCommand::ChangePixelFormatCommand()
-  : Command("ChangePixelFormat",
-            "Change Pixel Format",
-            CmdUIOnlyFlag)
+  : Command(CommandId::ChangePixelFormat(), CmdUIOnlyFlag)
 {
   m_useUI = true;
   m_format = IMAGE_RGB;
@@ -462,23 +462,21 @@ void ChangePixelFormatCommand::onExecute(Context* context)
     return;
 
   {
-    RenderTaskJob job("Converting Color Mode");
-    job.startJob(
-      [this, &job, context, flatten]{
-        ContextWriter writer(context);
-        Transaction transaction(writer.context(), "Color Mode Change");
-        Sprite* sprite(writer.sprite());
+    const ContextReader reader(context);
+    SpriteJob job(reader, "Color Mode Change");
+    job.startJobWithCallback(
+      [this, &job, flatten] {
+        Sprite* sprite(job.sprite());
 
         if (flatten)
-          transaction.execute(new cmd::FlattenLayers(sprite));
+          job.transaction().execute(new cmd::FlattenLayers(sprite));
 
-        transaction.execute(
+        job.transaction().execute(
           new cmd::SetPixelFormat(
             sprite, m_format,
             m_ditheringAlgorithm,
-            m_ditheringMatrix, &job));
-        if (!job.isCanceled())
-          transaction.commit();
+            m_ditheringMatrix,
+            &job));             // SpriteJob is a render::TaskDelegate
       });
     job.waitJob();
   }
@@ -489,33 +487,35 @@ void ChangePixelFormatCommand::onExecute(Context* context)
 
 std::string ChangePixelFormatCommand::onGetFriendlyName() const
 {
-  std::string text = "Change Color Mode";
+  std::string conversion;
 
   if (!m_useUI) {
     switch (m_format) {
       case IMAGE_RGB:
-        text += " to RGB";
+        conversion = Strings::commands_ChangePixelFormat_RGB();
+        break;
+      case IMAGE_GRAYSCALE:
+        conversion = Strings::commands_ChangePixelFormat_Grayscale();
         break;
       case IMAGE_INDEXED:
-        text += " to Indexed";
         switch (m_ditheringAlgorithm) {
           case render::DitheringAlgorithm::None:
+            conversion = Strings::commands_ChangePixelFormat_Indexed();
             break;
           case render::DitheringAlgorithm::Ordered:
-            text += " with Ordered Dithering";
+            conversion = Strings::commands_ChangePixelFormat_Indexed_OrderedDithering();
             break;
           case render::DitheringAlgorithm::Old:
-            text += " with Old Dithering";
+            conversion = Strings::commands_ChangePixelFormat_Indexed_OldDithering();
             break;
         }
         break;
-      case IMAGE_GRAYSCALE:
-        text += " to Grayscale";
-        break;
     }
   }
+  else
+    conversion = Strings::commands_ChangePixelFormat_MoreOptions();
 
-  return text;
+  return fmt::format(getBaseFriendlyName(), conversion);
 }
 
 Command* CommandFactory::createChangePixelFormatCommand()

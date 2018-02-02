@@ -24,6 +24,7 @@
 #include "app/ui_context.h"
 #include "base/bind.h"
 #include "base/exception.h"
+#include "fmt/format.h"
 #include "ui/label.h"
 #include "ui/resize_event.h"
 #include "ui/system.h"
@@ -42,10 +43,6 @@ HomeView::HomeView()
   , m_dataRecovery(nullptr)
   , m_dataRecoveryView(nullptr)
 {
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-  setBgColor(theme->colors.workspace());
-  setChildSpacing(8 * guiscale());
-
   newFile()->Click.connect(base::Bind(&HomeView::onNewFile, this));
   openFile()->Click.connect(base::Bind(&HomeView::onOpenFile, this));
   recoverSprites()->Click.connect(base::Bind(&HomeView::onRecoverSprites, this));
@@ -56,6 +53,14 @@ HomeView::HomeView()
 
   checkUpdate()->setVisible(false);
   recoverSpritesPlaceholder()->setVisible(false);
+
+  InitTheme.connect(
+    [this]{
+      SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+      setBgColor(theme->colors.workspace());
+      setChildSpacing(8 * guiscale());
+    });
+  initTheme();
 }
 
 HomeView::~HomeView()
@@ -108,13 +113,13 @@ void HomeView::onWorkspaceViewSelected()
 
 void HomeView::onNewFile()
 {
-  Command* command = CommandsModule::instance()->getCommandByName(CommandId::NewFile);
+  Command* command = Commands::instance()->byId(CommandId::NewFile());
   UIContext::instance()->executeCommand(command);
 }
 
 void HomeView::onOpenFile()
 {
-  Command* command = CommandsModule::instance()->getCommandByName(CommandId::OpenFile);
+  Command* command = Commands::instance()->byId(CommandId::OpenFile());
   UIContext::instance()->executeCommand(command);
 }
 
@@ -139,7 +144,7 @@ void HomeView::onCheckingUpdates()
 
 void HomeView::onUpToDate()
 {
-  checkUpdate()->setText(PACKAGE " is up to date");
+  checkUpdate()->setText(fmt::format("{0} is up to date", PACKAGE));
   checkUpdate()->setVisible(true);
 
   layout();
@@ -147,12 +152,16 @@ void HomeView::onUpToDate()
 
 void HomeView::onNewUpdate(const std::string& url, const std::string& version)
 {
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-
-  checkUpdate()->setText("New " PACKAGE " v" + version + " available!");
+  checkUpdate()->setText(fmt::format("New {0} v{1} available!",
+                                       PACKAGE, version));
   checkUpdate()->setUrl(url);
-  checkUpdate()->setStyle(theme->styles.workspaceUpdateLink());
   checkUpdate()->setVisible(true);
+  checkUpdate()->InitTheme.connect(
+    [this]{
+      SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+      checkUpdate()->setStyle(theme->styles.workspaceUpdateLink());
+    });
+  checkUpdate()->initTheme();
 
   layout();
 }

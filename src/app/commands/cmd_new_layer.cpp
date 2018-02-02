@@ -65,9 +65,7 @@ private:
 };
 
 NewLayerCommand::NewLayerCommand()
-  : Command("NewLayer",
-            "New Layer",
-            CmdRecordableFlag)
+  : Command(CommandId::NewLayer(), CmdRecordableFlag)
 {
   m_name = "";
   m_type = Type::Layer;
@@ -132,7 +130,7 @@ void NewLayerCommand::onExecute(Context* context)
   // Select a file to copy its content
   if (m_fromFile) {
     Document* oldActiveDocument = context->activeDocument();
-    Command* openFile = CommandsModule::instance()->getCommandByName(CommandId::OpenFile);
+    Command* openFile = Commands::instance()->byId(CommandId::OpenFile());
     Params params;
     params.set("filename", "");
     context->executeCommand(openFile, params);
@@ -143,6 +141,10 @@ void NewLayerCommand::onExecute(Context* context)
       static_cast<UIContext*>(context)
         ->setActiveDocument(oldActiveDocument);
     }
+    // If the user didn't selected a new document, it means that the
+    // file selector dialog was canceled.
+    else
+      return;
   }
 
   // If params specify to ask the user about the name...

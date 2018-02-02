@@ -66,7 +66,7 @@ public:
 
   private:
     void onClick(Event& ev) override {
-      m_colorPopup->setColorWithSignal(m_color);
+      m_colorPopup->setColorWithSignal(m_color, ChangeType);
     }
 
     void onPaint(PaintEvent& ev) override {
@@ -94,8 +94,12 @@ public:
                             doc::rgba_geta(c));
 
       Item* item = new Item(colorPopup, color);
-      item->setSizeHint(gfx::Size(16, 16)*ui::guiscale());
-      item->setStyle(skin::SkinTheme::instance()->styles.simpleColor());
+      item->InitTheme.connect(
+        [item]{
+          item->setSizeHint(gfx::Size(16, 16)*ui::guiscale());
+          item->setStyle(skin::SkinTheme::instance()->styles.simpleColor());
+        });
+      item->initTheme();
       addChild(item);
 
       tooltips->addTooltipFor(
@@ -260,12 +264,15 @@ ColorPopup::ColorPopup(const ColorButtonOptions& options)
   // Set RGB just for the sizeHint(), and then deselect the color type
   // (the first setColor() call will setup it correctly.)
   selectColorType(app::Color::RgbType);
-  setSizeHint(gfx::Size(300*guiscale(), sizeHint().h));
   m_colorType.deselectItems();
 
   m_onPaletteChangeConn =
     App::instance()->PaletteChange.connect(&ColorPopup::onPaletteChange, this);
 
+  InitTheme.connect(
+    [this]{
+      setSizeHint(gfx::Size(300*guiscale(), sizeHint().h));
+    });
   initTheme();
 }
 
@@ -273,7 +280,8 @@ ColorPopup::~ColorPopup()
 {
 }
 
-void ColorPopup::setColor(const app::Color& color, SetColorOptions options)
+void ColorPopup::setColor(const app::Color& color,
+                          const SetColorOptions options)
 {
   m_color = color;
 
@@ -361,12 +369,12 @@ void ColorPopup::onMakeFixed()
 
 void ColorPopup::onPaletteViewIndexChange(int index, ui::MouseButtons buttons)
 {
-  setColorWithSignal(app::Color::fromIndex(index));
+  setColorWithSignal(app::Color::fromIndex(index), ChangeType);
 }
 
 void ColorPopup::onColorSlidersChange(ColorSlidersChangeEvent& ev)
 {
-  setColorWithSignal(ev.color());
+  setColorWithSignal(ev.color(), DontChangeType);
   findBestfitIndex(ev.color());
 }
 
@@ -376,7 +384,7 @@ void ColorPopup::onColorHexEntryChange(const app::Color& color)
   // is writting in the text field.
   m_disableHexUpdate = true;
 
-  setColorWithSignal(color);
+  setColorWithSignal(color, ChangeType);
   findBestfitIndex(color);
 
   m_disableHexUpdate = false;
@@ -406,7 +414,7 @@ void ColorPopup::onSimpleColorClick()
                                 doc::rgba_geta(c));
   }
 
-  setColorWithSignal(color);
+  setColorWithSignal(color, ChangeType);
 }
 
 void ColorPopup::onColorTypeClick()
@@ -447,7 +455,7 @@ void ColorPopup::onColorTypeClick()
       break;
   }
 
-  setColorWithSignal(newColor);
+  setColorWithSignal(newColor, ChangeType);
 }
 
 void ColorPopup::onPaletteChange()
@@ -475,9 +483,10 @@ void ColorPopup::findBestfitIndex(const app::Color& color)
   }
 }
 
-void ColorPopup::setColorWithSignal(const app::Color& color)
+void ColorPopup::setColorWithSignal(const app::Color& color,
+                                    const SetColorOptions options)
 {
-  setColor(color, ChangeType);
+  setColor(color, options);
 
   // Fire ColorChange signal
   ColorChange(color);

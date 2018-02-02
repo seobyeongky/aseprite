@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -11,10 +11,12 @@
 #include "app/app.h"
 #include "app/commands/command.h"
 #include "app/commands/params.h"
+#include "app/i18n/strings.h"
 #include "app/modules/editors.h"
 #include "app/pref/preferences.h"
 #include "app/ui/editor/editor.h"
 #include "base/convert_to.h"
+#include "fmt/format.h"
 #include "render/zoom.h"
 #include "ui/manager.h"
 #include "ui/system.h"
@@ -30,6 +32,7 @@ public:
   Command* clone() const override { return new ZoomCommand(*this); }
 
 protected:
+  bool onNeedsParams() const override { return true; }
   void onLoadParams(const Params& params) override;
   bool onEnabled(Context* context) override;
   void onExecute(Context* context) override;
@@ -42,9 +45,7 @@ private:
 };
 
 ZoomCommand::ZoomCommand()
-  : Command("Zoom",
-            "Zoom",
-            CmdUIOnlyFlag)
+  : Command(CommandId::Zoom(), CmdUIOnlyFlag)
   , m_action(Action::In)
   , m_zoom(1, 1)
   , m_focus(Focus::Default)
@@ -119,17 +120,18 @@ void ZoomCommand::onExecute(Context* context)
 
 std::string ZoomCommand::onGetFriendlyName() const
 {
-  std::string text = "Zoom";
+  std::string text;
 
   switch (m_action) {
     case Action::In:
-      text += " in";
+      text = Strings::commands_Zoom_In();
       break;
     case Action::Out:
-      text += " out";
+      text = Strings::commands_Zoom_Out();
       break;
     case Action::Set:
-      text += " " + base::convert_to<std::string>(int(100.0*m_zoom.scale())) + "%";
+      text = fmt::format(Strings::commands_Zoom_Set(),
+                         int(100.0*m_zoom.scale()));
       break;
   }
 

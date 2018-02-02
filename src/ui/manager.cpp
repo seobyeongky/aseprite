@@ -8,6 +8,7 @@
 // #define REPORT_FOCUS_MOVEMENT
 // #define DEBUG_PAINT_EVENTS
 // #define LIMIT_DISPATCH_TIME
+// #define DEBUG_UI_THREADS
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -25,7 +26,7 @@
 #include "ui/intern.h"
 #include "ui/ui.h"
 
-#ifdef DEBUG_PAINT_EVENTS
+#if defined(DEBUG_PAINT_EVENTS) || defined(DEBUG_UI_THREADS)
 #include "base/thread.h"
 #endif
 
@@ -65,6 +66,10 @@ typedef std::list<Filter*> Filters;
 Manager* Manager::m_defaultManager = NULL;
 gfx::Region Manager::m_dirtyRegion;
 
+#ifdef DEBUG_UI_THREADS
+static base::thread::native_handle_type manager_thread = 0;
+#endif
+
 static WidgetsList mouse_widgets_list; // List of widgets to send mouse events
 static Messages msg_queue;             // Messages queue
 static Filters msg_filters[NFILTERS]; // Filters for every enqueued message
@@ -75,6 +80,11 @@ static Widget* mouse_widget;    // The widget with the mouse
 static Widget* capture_widget;  // The widget that captures the mouse
 
 static bool first_time = true;    // true when we don't enter in poll yet
+
+// Don't adjust window positions automatically when it's false. Used
+// when Screen/UI scaling is changed to avoid adjusting windows as
+// when the she::Display is resized by the user.
+static bool auto_window_adjustment = true;
 
 /* keyboard focus movement stuff */
 static int count_widgets_accept_focus(Widget* widget);
@@ -116,6 +126,17 @@ public:
 
 } // anonymous namespace
 
+// static
+bool Manager::widgetAssociatedToManager(Widget* widget)
+{
+  return (focus_widget == widget ||
+          mouse_widget == widget ||
+          capture_widget == widget ||
+          std::find(mouse_widgets_list.begin(),
+                    mouse_widgets_list.end(),
+                    widget) != mouse_widgets_list.end());
+}
+
 Manager::Manager()
   : Widget(kManagerWidget)
   , m_display(NULL)
@@ -123,6 +144,11 @@ Manager::Manager()
   , m_lockedWindow(NULL)
   , m_mouseButtons(kButtonNone)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(!manager_thread);
+  manager_thread = base::this_thread::native_handle();
+#endif
+
   if (!m_defaultManager) {
     // Empty lists
     ASSERT(msg_queue.empty());
@@ -146,6 +172,10 @@ Manager::Manager()
 
 Manager::~Manager()
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   // There are some messages in queue? Dispatch everything.
   dispatchMessages();
   collectGarbage();
@@ -175,6 +205,10 @@ Manager::~Manager()
 
 void Manager::setDisplay(she::Display* display)
 {
+  base::ScopedValue<bool> lock(
+    auto_window_adjustment, false,
+    auto_window_adjustment);
+
   m_display = display;
   m_eventQueue = she::instance()->eventQueue();
 
@@ -803,6 +837,10 @@ void Manager::setMouse(Widget* widget)
 
 void Manager::setCapture(Widget* widget)
 {
+  // To set the capture, we set first the mouse_widget (because
+  // mouse_widget shouldn't be != capture_widget)
+  setMouse(widget);
+
   widget->enableFlags(HAS_CAPTURE);
   capture_widget = widget;
 
@@ -852,6 +890,10 @@ void Manager::freeCapture()
 
 void Manager::freeWidget(Widget* widget)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   if (widget->hasFocus() || (widget == focus_widget))
     freeFocus();
 
@@ -867,10 +909,22 @@ void Manager::freeWidget(Widget* widget)
 
   if (widget->hasMouse() || (widget == mouse_widget))
     freeMouse();
+
+  auto it = std::find(mouse_widgets_list.begin(),
+                      mouse_widgets_list.end(),
+                      widget);
+  if (it != mouse_widgets_list.end())
+    mouse_widgets_list.erase(it);
+
+  ASSERT(!Manager::widgetAssociatedToManager(widget));
 }
 
 void Manager::removeMessage(Message* msg)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   auto it = std::find(msg_queue.begin(), msg_queue.end(), msg);
   ASSERT(it != msg_queue.end());
   msg_queue.erase(it);
@@ -878,12 +932,20 @@ void Manager::removeMessage(Message* msg)
 
 void Manager::removeMessagesFor(Widget* widget)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   for (Message* msg : msg_queue)
     removeWidgetFromRecipients(widget, msg);
 }
 
 void Manager::removeMessagesFor(Widget* widget, MessageType type)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   for (Message* msg : msg_queue)
     if (msg->type() == type)
       removeWidgetFromRecipients(widget, msg);
@@ -891,6 +953,10 @@ void Manager::removeMessagesFor(Widget* widget, MessageType type)
 
 void Manager::removeMessagesForTimer(Timer* timer)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   for (auto it=msg_queue.begin(); it != msg_queue.end(); ) {
     Message* msg = *it;
 
@@ -907,6 +973,10 @@ void Manager::removeMessagesForTimer(Timer* timer)
 
 void Manager::addMessageFilter(int message, Widget* widget)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   LockFilters lock;
   int c = message;
   if (c >= kFirstRegisteredMessage)
@@ -917,6 +987,10 @@ void Manager::addMessageFilter(int message, Widget* widget)
 
 void Manager::removeMessageFilter(int message, Widget* widget)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   LockFilters lock;
   int c = message;
   if (c >= kFirstRegisteredMessage)
@@ -931,6 +1005,10 @@ void Manager::removeMessageFilter(int message, Widget* widget)
 
 void Manager::removeMessageFilterFor(Widget* widget)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   LockFilters lock;
   for (Filters& msg_filter : msg_filters) {
     for (Filter* filter : msg_filter) {
@@ -1066,6 +1144,14 @@ bool Manager::onProcessMessage(Message* msg)
 {
   switch (msg->type()) {
 
+    case kPaintMessage:
+      // Draw nothing (the manager should be invisible). On Windows,
+      // after closing the main window, the manager will not refresh
+      // the she::Display content, so we'll avoid a gray background
+      // (the last main window content is kept until the Display is
+      // finally closed.)
+      return true;
+
     case kResizeDisplayMessage:
       onNewDisplayConfiguration();
       break;
@@ -1116,10 +1202,10 @@ void Manager::onResize(ResizeEvent& ev)
   // The whole manager area is invalid now.
   m_invalidRegion = gfx::Region(new_pos);
 
-  int dx = new_pos.x - old_pos.x;
-  int dy = new_pos.y - old_pos.y;
-  int dw = new_pos.w - old_pos.w;
-  int dh = new_pos.h - old_pos.h;
+  const int dx = new_pos.x - old_pos.x;
+  const int dy = new_pos.y - old_pos.y;
+  const int dw = new_pos.w - old_pos.w;
+  const int dh = new_pos.h - old_pos.h;
 
   for (auto child : children()) {
     Window* window = static_cast<Window*>(child);
@@ -1128,26 +1214,36 @@ void Manager::onResize(ResizeEvent& ev)
       break;
     }
 
-    gfx::Rect cpos = window->bounds();
-    int cx = cpos.x+cpos.w/2;
-    int cy = cpos.y+cpos.h/2;
+    gfx::Rect bounds = window->bounds();
+    const int cx = bounds.x+bounds.w/2;
+    const int cy = bounds.y+bounds.h/2;
 
-    if (cx > old_pos.x+old_pos.w*3/5) {
-      cpos.x += dw;
-    }
-    else if (cx > old_pos.x+old_pos.w*2/5) {
-      cpos.x += dw / 2;
-    }
+    if (auto_window_adjustment) {
+      if (cx > old_pos.x+old_pos.w*3/5) {
+        bounds.x += dw;
+      }
+      else if (cx > old_pos.x+old_pos.w*2/5) {
+        bounds.x += dw / 2;
+      }
 
-    if (cy > old_pos.y+old_pos.h*3/5) {
-      cpos.y += dh;
-    }
-    else if (cy > old_pos.y+old_pos.h*2/5) {
-      cpos.y += dh / 2;
-    }
+      if (cy > old_pos.y+old_pos.h*3/5) {
+        bounds.y += dh;
+      }
+      else if (cy > old_pos.y+old_pos.h*2/5) {
+        bounds.y += dh / 2;
+      }
 
-    cpos.offset(dx, dy);
-    window->setBounds(cpos);
+      bounds.offset(dx, dy);
+    }
+    else {
+      if (bounds.x2() > new_pos.x2()) {
+        bounds.x = new_pos.x2() - bounds.w;
+      }
+      if (bounds.y2() > new_pos.y2()) {
+        bounds.y = new_pos.y2() - bounds.h;
+      }
+    }
+    window->setBounds(bounds);
   }
 }
 
@@ -1158,6 +1254,31 @@ void Manager::onBroadcastMouseMessage(WidgetsList& targets)
   Widget* widget = UI_FIRST_WIDGET(children());
   if (widget)
     widget->broadcastMouseMessage(targets);
+}
+
+void Manager::onInitTheme(InitThemeEvent& ev)
+{
+  Widget::onInitTheme(ev);
+
+  // Remap the windows
+  const int oldUIScale = ui::details::old_guiscale();
+  const int newUIScale = ui::guiscale();
+  for (auto widget : children()) {
+    if (widget->type() == kWindowWidget) {
+      auto window = static_cast<Window*>(widget);
+      if (window->isDesktop()) {
+        window->layout();
+      }
+      else {
+        gfx::Rect bounds = window->bounds();
+        bounds *= newUIScale;
+        bounds /= oldUIScale;
+        bounds.x = MID(0, bounds.x, m_display->width() - bounds.w);
+        bounds.y = MID(0, bounds.y, m_display->height() - bounds.h);
+        window->setBounds(bounds);
+      }
+    }
+  }
 }
 
 LayoutIO* Manager::onGetLayoutIO()
@@ -1283,6 +1404,10 @@ int Manager::pumpQueue()
 
 bool Manager::sendMessageToWidget(Message* msg, Widget* widget)
 {
+#ifdef DEBUG_UI_THREADS
+  ASSERT(manager_thread == base::this_thread::native_handle());
+#endif
+
   if (!widget)
     return false;
 
@@ -1319,7 +1444,8 @@ bool Manager::sendMessageToWidget(Message* msg, Widget* widget)
                                             "Unknown";
 
     std::cout << "Event " << msg->type() << " (" << string << ") "
-              << "for " << typeid(*widget).name();
+              << "for " << ((void*)widget) << std::flush;
+    std::cout << " (" << typeid(*widget).name() << ")";
     if (!widget->id().empty())
       std::cout << " (" << widget->id() << ")";
     std::cout << std::endl;
@@ -1336,9 +1462,9 @@ bool Manager::sendMessageToWidget(Message* msg, Widget* widget)
 
     PaintMessage* paintMsg = static_cast<PaintMessage*>(msg);
     she::Surface* surface = m_display->getSurface();
-    gfx::Rect oldClip = surface->getClipBounds();
+    surface->saveClip();
 
-    if (surface->intersectClipRect(paintMsg->rect())) {
+    if (surface->clipRect(paintMsg->rect())) {
 #ifdef REPORT_EVENTS
       std::cout << " - clip("
                 << paintMsg->rect().x << ", "
@@ -1365,7 +1491,7 @@ bool Manager::sendMessageToWidget(Message* msg, Widget* widget)
         used = widget->sendMessage(msg);
 
         // Restore clip region for paint messages.
-        surface->setClipBounds(oldClip);
+        surface->restoreClip();
       }
     }
 

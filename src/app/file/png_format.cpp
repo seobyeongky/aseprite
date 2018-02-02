@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -29,7 +29,7 @@ using namespace base;
 class PngFormat : public FileFormat {
   const char* onGetName() const override { return "png"; }
   const char* onGetExtensions() const override { return "png"; }
-  docio::FileFormat onGetDocioFormat() const override { return docio::FileFormat::PNG_IMAGE; }
+  dio::FileFormat onGetDioFormat() const override { return dio::FileFormat::PNG_IMAGE; }
   int onGetFlags() const override {
     return
       FILE_SUPPORT_LOAD |
@@ -446,6 +446,7 @@ bool PngFormat::onSave(FileOp* fop)
       mask_entry = fop->document()->sprite()->transparentColor();
     }
 
+    bool all_opaque = true;
     int num_trans = pal_size;
     png_bytep trans = (png_bytep)png_malloc(png_ptr, num_trans);
 
@@ -453,9 +454,13 @@ bool PngFormat::onSave(FileOp* fop)
       int alpha = 255;
       fop->sequenceGetAlpha(c, &alpha);
       trans[c] = (c == mask_entry ? 0: alpha);
+      if (alpha < 255)
+        all_opaque = false;
     }
 
-    png_set_tRNS(png_ptr, info_ptr, trans, num_trans, NULL);
+    if (!all_opaque || mask_entry >= 0)
+      png_set_tRNS(png_ptr, info_ptr, trans, num_trans, nullptr);
+
     png_free(png_ptr, trans);
   }
 

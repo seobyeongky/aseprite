@@ -25,6 +25,7 @@ public:
   Command* clone() const override { return new TimelineCommand(*this); }
 
 protected:
+  bool onNeedsParams() const override { return true; }
   void onLoadParams(const Params& params) override;
   void onExecute(Context* context) override;
   bool onChecked(Context* ctx) override;
@@ -35,9 +36,7 @@ protected:
 };
 
 TimelineCommand::TimelineCommand()
-  : Command("Timeline",
-            "Switch Timeline",
-            CmdUIOnlyFlag)
+  : Command(CommandId::Timeline(), CmdUIOnlyFlag)
 {
   m_open = true;
   m_close = false;

@@ -95,7 +95,7 @@ add_subdirectory(gen)
 add_subdirectory(gfx)
 add_subdirectory(net)
 add_subdirectory(render)
-add_subdirectory(docio)
+add_subdirectory(dio)
 add_subdirectory(ft)
 add_subdirectory(she)
 add_subdirectory(ui)
@@ -161,14 +161,9 @@ if(WIN32)
     main/settings.manifest)
 endif()
 
-if(UNIX AND NOT APPLE AND USE_ALLEG4_BACKEND)
-  set(x11_resources main/xpm_icon.c)
-endif()
-
 add_executable(aseprite WIN32
   main/main.cpp
-  ${win32_resources}
-  ${x11_resources})
+  ${win32_resources})
 target_link_libraries(aseprite app-lib ${PLATFORM_LIBS})
 add_dependencies(aseprite copy_data)
 
@@ -189,7 +184,6 @@ install(DIRECTORY ../data
 
 if(ENABLE_TESTS)
   include(FindTests)
-
   find_tests(gfx gfx-lib)
   find_tests(doc doc-lib)
   find_tests(render render-lib)
@@ -198,4 +192,9 @@ if(ENABLE_TESTS)
   find_tests(app/file app-lib)
   find_tests(app app-lib)
   find_tests(. app-lib)
+endif()
+
+if(ENABLE_BENCHMARKS)
+  include(FindBenchmarks)
+  find_benchmarks(doc doc-lib)
 endif()

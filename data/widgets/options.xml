@@ -45,6 +45,8 @@
           <check id="gpu_acceleration"
                  text="@.gpu_acceleration"
                  tooltip="@.gpu_acceleration_tooltip" />
+          <check id="show_menu_bar"
+		 text="@.show_menu_bar" />
           <check id="show_home"
 		 text="@.show_home" />
           <check id="expand_menubar_on_mouseover"
@@ -82,6 +84,8 @@
           <check text="@.zoom_from_center_with_keys" id="zoom_from_center_with_keys" />
           <check text="@.show_scrollbars" id="show_scrollbars" tooltip="@.show_scrollbars_tooltip" />
           <check text="@.auto_scroll" id="auto_scroll" />
+          <check text="@.straight_line_preview" id="straight_line_preview" tooltip="@.straight_line_preview_tooltip" />
+          <check text="@.discard_brush" id="discard_brush" />
           <hbox>
             <label text="@.right_click" />
             <combobox id="right_click_behavior" expansive="true" />
@@ -94,6 +98,8 @@
           <check text="@.auto_opaque" id="auto_opaque" tooltip="@.auto_opaque_tooltip" />
           <check text="@.keep_selection_after_clear" id="keep_selection_after_clear" tooltip="@.keep_selection_after_clear_tooltip" />
           <check text="@.move_edges" id="move_edges" tooltip="@.move_edges_tooltip" />
+          <check text="@.modifiers_disable_handles" id="modifiers_disable_handles" tooltip="@.modifiers_disable_handles_tooltip" />
+          <check text="@.move_on_add_mode" id="move_on_add_mode" tooltip="@.move_on_add_mode_tooltip" />
         </vbox>
 
         <!-- Timeline -->
@@ -244,8 +250,8 @@
         <vbox id="section_undo">
           <separator text="@.section_undo" horizontal="true" />
           <hbox>
-            <label text="@.undo_size_limit" />
-            <entry id="undo_size_limit" maxsize="4" tooltip="@.undo_size_limit_tooltip" />
+            <check id="limit_undo" text="@.undo_size_limit" />
+            <entry id="undo_size_limit" maxsize="6" tooltip="@.undo_size_limit_tooltip" />
             <label text="@.undo_mb" />
           </hbox>
 

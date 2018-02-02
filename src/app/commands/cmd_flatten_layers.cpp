@@ -29,9 +29,7 @@ protected:
 };
 
 FlattenLayersCommand::FlattenLayersCommand()
-  : Command("FlattenLayers",
-            "Flatten Layers",
-            CmdUIOnlyFlag)
+  : Command(CommandId::FlattenLayers(), CmdUIOnlyFlag)
 {
 }
 

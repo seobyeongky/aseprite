@@ -32,10 +32,10 @@
 
 #include "tinyxml.h"
 
-#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 namespace app {
 
@@ -89,7 +89,7 @@ Widget* WidgetLoader::loadWidgetFromXmlFile(
   ui::Widget* widget)
 {
   m_tooltipManager = NULL;
-  m_stringIdPrefix = widgetId;
+  m_xmlTranslator.setStringIdPrefix(widgetId.c_str());
 
   XmlDocumentRef doc(open_xml(xmlFilename));
   TiXmlHandle handle(doc.get());
@@ -162,7 +162,7 @@ Widget* WidgetLoader::convertXmlElementToWidget(const TiXmlElement* elem, Widget
           throw base::Exception("<button> element found with invalid 'icon' attribute '%s'",
                                 icon_name);
 
-        widget = new IconButton(part->bitmap(0));
+        widget = new IconButton(part);
       }
       else {
         widget = new Button("");
@@ -362,7 +362,7 @@ Widget* WidgetLoader::convertXmlElementToWidget(const TiXmlElement* elem, Widget
       (middle ? MIDDLE: (bottom ? BOTTOM: TOP));
 
     if (!widget) {
-      widget = new Separator(textAttr(elem, "text"), align);
+      widget = new Separator(m_xmlTranslator(elem, "text"), align);
     }
     else
       widget->setAlign(widget->align() | align);
@@ -397,7 +397,7 @@ Widget* WidgetLoader::convertXmlElementToWidget(const TiXmlElement* elem, Widget
       if (desktop)
         widget = new Window(Window::DesktopWindow);
       else if (elem->Attribute("text"))
-        widget = new Window(Window::WithTitleBar, textAttr(elem, "text"));
+        widget = new Window(Window::WithTitleBar, m_xmlTranslator(elem, "text"));
       else
         widget = new Window(Window::WithoutTitleBar);
     }
@@ -419,7 +419,7 @@ Widget* WidgetLoader::convertXmlElementToWidget(const TiXmlElement* elem, Widget
   }
   else if (elem_name == "dropdownbutton")  {
     if (!widget) {
-      widget = new DropDownButton(textAttr(elem, "text").c_str());
+      widget = new DropDownButton(m_xmlTranslator(elem, "text").c_str());
     }
   }
   else if (elem_name == "buttonset") {
@@ -453,7 +453,7 @@ Widget* WidgetLoader::convertXmlElementToWidget(const TiXmlElement* elem, Widget
       }
 
       if (text)
-        item->setText(textAttr(elem, "text"));
+        item->setText(m_xmlTranslator(elem, "text"));
 
       buttonset->addItem(item, hspan, vspan);
       fillWidgetWithXmlElementAttributes(elem, root, item);
@@ -527,7 +527,7 @@ void WidgetLoader::fillWidgetWithXmlElementAttributes(const TiXmlElement* elem, 
     widget->setId(id);
 
   if (elem->Attribute("text"))
-    widget->setText(textAttr(elem, "text"));
+    widget->setText(m_xmlTranslator(elem, "text"));
 
   if (elem->Attribute("tooltip") && root) {
     if (!m_tooltipManager) {
@@ -543,7 +543,7 @@ void WidgetLoader::fillWidgetWithXmlElementAttributes(const TiXmlElement* elem, 
       else if (strcmp(tooltip_dir, "right") == 0) dir = RIGHT;
     }
 
-    m_tooltipManager->addTooltipFor(widget, textAttr(elem, "tooltip"), dir);
+    m_tooltipManager->addTooltipFor(widget, m_xmlTranslator(elem, "tooltip"), dir);
   }
 
   if (selected)
@@ -561,40 +561,66 @@ void WidgetLoader::fillWidgetWithXmlElementAttributes(const TiXmlElement* elem, 
   if (magnet)
     widget->setFocusMagnet(true);
 
-  if (noborders)
-    widget->noBorderNoChildSpacing();
-
-  if (border)
-    widget->setBorder(gfx::Border(strtol(border, NULL, 10)*guiscale()));
-
-  if (childspacing)
-    widget->setChildSpacing(strtol(childspacing, NULL, 10)*guiscale());
-
-  gfx::Size reqSize = widget->sizeHint();
-
-  if (minwidth || minheight) {
-    int w = (minwidth ? guiscale()*strtol(minwidth, NULL, 10): reqSize.w);
-    int h = (minheight ? guiscale()*strtol(minheight, NULL, 10): reqSize.h);
-    widget->setMinSize(gfx::Size(w, h));
+  if (noborders) {
+    widget->InitTheme.connect(
+      [widget]{
+        widget->noBorderNoChildSpacing();
+      });
   }
 
-  if (maxwidth || maxheight) {
-    int w = (maxwidth ? guiscale()*strtol(maxwidth, NULL, 10): INT_MAX);
-    int h = (maxheight ? guiscale()*strtol(maxheight, NULL, 10): INT_MAX);
-    widget->setMaxSize(gfx::Size(w, h));
+  if (border) {
+    int v = strtol(border, nullptr, 10);
+    widget->InitTheme.connect(
+      [widget, v]{
+        widget->setBorder(gfx::Border(v*guiscale()));
+      });
+  }
+
+  if (childspacing) {
+    int v = strtol(childspacing, nullptr, 10);
+    widget->InitTheme.connect(
+      [widget, v]{
+        widget->setChildSpacing(v*guiscale());
+      });
+  }
+
+  if (minwidth || minheight ||
+      maxwidth || maxheight) {
+    const int minw = (minwidth ? strtol(minwidth, NULL, 10): 0);
+    const int minh = (minheight ? strtol(minheight, NULL, 10): 0);
+    const int maxw = (maxwidth ? strtol(maxwidth, NULL, 10): 0);
+    const int maxh = (maxheight ? strtol(maxheight, NULL, 10): 0);
+    widget->InitTheme.connect(
+      [widget, minw, minh, maxw, maxh]{
+        widget->setMinSize(gfx::Size(0, 0));
+        widget->setMaxSize(gfx::Size(std::numeric_limits<int>::max(),
+                                     std::numeric_limits<int>::max()));
+        const gfx::Size reqSize = widget->sizeHint();
+        widget->setMinSize(
+          gfx::Size((minw > 0 ? guiscale()*minw: reqSize.w),
+                    (minh > 0 ? guiscale()*minh: reqSize.h)));
+        widget->setMaxSize(
+          gfx::Size((maxw > 0 ? guiscale()*maxw: std::numeric_limits<int>::max()),
+                    (maxh > 0 ? guiscale()*maxh: std::numeric_limits<int>::max())));
+      });
   }
 
   if (styleid) {
-    SkinTheme* theme = static_cast<SkinTheme*>(root->theme());
-    ui::Style* style = theme->getStyleById(styleid);
-    if (style)
-      widget->setStyle(style);
-    else
-      throw base::Exception("Style %s not found", styleid);
+    std::string styleIdStr = styleid;
+    widget->InitTheme.connect(
+      [widget, styleIdStr]{
+        SkinTheme* theme = static_cast<SkinTheme*>(widget->theme());
+        ui::Style* style = theme->getStyleById(styleIdStr);
+        if (style)
+          widget->setStyle(style);
+        else
+          throw base::Exception("Style %s not found", styleIdStr.c_str());
+      });
   }
 
   // Assign widget mnemonic from the character preceded by a '&'
   widget->processMnemonicFromText();
+  widget->initTheme();
 }
 
 void WidgetLoader::fillWidgetWithXmlElementAttributesWithChildren(const TiXmlElement* elem, ui::Widget* root, ui::Widget* widget)
@@ -695,21 +721,6 @@ static int int_attr(const TiXmlElement* elem, const char* attribute_name, int de
   const char* value = elem->Attribute(attribute_name);
 
   return (value ? strtol(value, NULL, 10): default_value);
-}
-
-std::string WidgetLoader::textAttr(const TiXmlElement* elem, const char* attrName)
-{
-  const char* value = elem->Attribute(attrName);
-  if (!value)
-    return std::string();
-  else if (value[0] == '@') {
-    if (value[1] == '.')
-      return Strings::instance()->translate((m_stringIdPrefix + (value+1)).c_str());
-    else
-      return Strings::instance()->translate(value+1);
-  }
-  else
-    return std::string(value);
 }
 
 } // namespace app

@@ -29,8 +29,10 @@ static void run(int argc, const char* argv[])
   PO::Option& prefCpp = po.add("pref-cpp");
   PO::Option& theme = po.add("theme");
   PO::Option& strings = po.add("strings");
+  PO::Option& commandIds = po.add("command-ids");
   PO::Option& widgetsDir = po.add("widgets-dir").requiresValue("<dir>");
   PO::Option& stringsDir = po.add("strings-dir").requiresValue("<dir>");
+  PO::Option& guiFile = po.add("gui-file").requiresValue("<filename>");
   po.parse(argc, argv);
 
   // Try to load the XML file
@@ -71,11 +73,16 @@ static void run(int argc, const char* argv[])
   else if (po.enabled(strings)) {
     gen_strings_class(inputFilename);
   }
+  // Generate command_ids.ini.h file
+  else if (po.enabled(commandIds)) {
+    gen_command_ids(inputFilename);
+  }
   // Check all translation files (en.ini, es.ini, etc.)
   else if (po.enabled(widgetsDir) &&
            po.enabled(stringsDir)) {
     check_strings(po.value_of(widgetsDir),
-                  po.value_of(stringsDir));
+                  po.value_of(stringsDir),
+                  po.value_of(guiFile));
   }
 }
 

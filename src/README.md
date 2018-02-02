@@ -42,15 +42,15 @@ because they don't depend on any other component.
   * [filters](filters/) (base, doc, gfx): Effects for images.
   * [render](render/) (base, doc, gfx): Library to render documents.
   * [ui](ui/) (base, gfx, she): Portable UI library (buttons, windows, text fields, etc.)
-  * [updater](updater/) (base, net): Component to check for updates.
+  * [updater](updater/) (base, cfg, net): Component to check for updates.
 
 ## Level 4
 
-  * [docio](docio/) (base, flic): Load/save documents.
+  * [dio](dio/) (base, flic): Load/save documents.
 
 ## Level 5
 
-  * [app](app/) (allegro, base, doc, docio, filters, fixmath, flic, gfx, pen, render, scripting, she, ui, undo, updater, webserver)
+  * [app](app/) (allegro, base, doc, dio, filters, fixmath, flic, gfx, pen, render, scripting, she, ui, undo, updater, webserver)
 
 ## Level 6
 
@@ -58,9 +58,28 @@ because they don't depend on any other component.
 
 # Debugging Tricks
 
-* On Windows, you can use F5 to show the amount of used memory.
-* On debug mode (when `_DEBUG` is defined), `Ctrl+Alt+Shift+Q` crashes
-  the application in case that you want to test the anticrash feature
-  or your need a memory dump file.
-* On debug mode, you can use `Ctrl+Alt+Shift+R` to recover the active
-  document from the data recovery store.
+When Aseprite is compiled with `ENABLE_DEVMODE`, you have the
+following extra commands available:
+
+* `F5`: On Windows shows the amount of used memory.
+* `F1`: Switch/test Screen/UI Scaling values.
+* `Ctrl+Alt+Shift+Q`: crashes the application in case that you want to
+  test the anticrash feature or your need a memory dump file.
+* `Ctrl+Alt+Shift+R`: recover the active document from the data
+  recovery store.
+
+# Detect Platform
+
+You can check the platform using the following checks:
+
+    #ifdef _WIN32
+      #ifdef _WIN64
+        // Windows x64
+      #else
+        // Windows x86
+      #endif
+    #elif defined(__APPLE__)
+        // macOS
+    #else
+        // Linux
+    #endif

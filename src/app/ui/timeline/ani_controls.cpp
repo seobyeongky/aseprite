@@ -63,7 +63,6 @@ AniControls::AniControls()
 
   setTriggerOnMouseUp(true);
   setTransparent(true);
-  setBgColor(theme->colors.workspace());
 
   TooltipManager* tooltips = new TooltipManager;
   addChild(tooltips);
@@ -71,6 +70,12 @@ AniControls::AniControls()
     tooltips->addTooltipFor(getItem(i), getTooltipFor(i), BOTTOM);
 
   getItem(ACTION_PLAY)->enableFlags(CTRL_RIGHT_CLICK);
+
+  InitTheme.connect(
+    [this]{
+      SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+      setBgColor(theme->colors.workspace());
+    });
 }
 
 void AniControls::updateUsingPlayable(Playable* playable)
@@ -87,7 +92,7 @@ void AniControls::onClickButton()
   int item = selectedItem();
   deselectItems();
 
-  Command* cmd = CommandsModule::instance()->getCommandByName(getCommandId(item));
+  Command* cmd = Commands::instance()->byId(getCommandId(item));
   if (cmd) {
     UIContext::instance()->executeCommand(cmd);
     updateUsingPlayable(current_playable);
@@ -107,11 +112,11 @@ void AniControls::onRightClick(Item* item)
 const char* AniControls::getCommandId(int index) const
 {
   switch (index) {
-    case ACTION_FIRST: return CommandId::GotoFirstFrame;
-    case ACTION_PREV: return CommandId::GotoPreviousFrame;
-    case ACTION_PLAY: return CommandId::PlayAnimation;
-    case ACTION_NEXT: return CommandId::GotoNextFrame;
-    case ACTION_LAST: return CommandId::GotoLastFrame;
+    case ACTION_FIRST: return CommandId::GotoFirstFrame();
+    case ACTION_PREV: return CommandId::GotoPreviousFrame();
+    case ACTION_PLAY: return CommandId::PlayAnimation();
+    case ACTION_NEXT: return CommandId::GotoNextFrame();
+    case ACTION_LAST: return CommandId::GotoLastFrame();
   }
   ASSERT(false);
   return nullptr;
@@ -121,7 +126,7 @@ std::string AniControls::getTooltipFor(int index) const
 {
   std::string tooltip;
 
-  Command* cmd = CommandsModule::instance()->getCommandByName(getCommandId(index));
+  Command* cmd = Commands::instance()->byId(getCommandId(index));
   if (cmd) {
     tooltip = cmd->friendlyName();
 

@@ -4,6 +4,8 @@
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
 
+#define COLOR_BAR_TRACE(...)
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -21,10 +23,12 @@
 #include "app/commands/command.h"
 #include "app/commands/commands.h"
 #include "app/commands/params.h"
+#include "app/commands/quick_command.h"
 #include "app/console.h"
 #include "app/context_access.h"
 #include "app/document_api.h"
 #include "app/document_undo.h"
+#include "app/i18n/strings.h"
 #include "app/ini_file.h"
 #include "app/modules/editors.h"
 #include "app/modules/gui.h"
@@ -68,6 +72,7 @@
 #include "ui/tooltips.h"
 
 #include <cstring>
+#include <limits>
 
 namespace app {
 
@@ -85,6 +90,11 @@ using namespace ui;
 class ColorBar::WarningIcon : public ui::Button {
 public:
   WarningIcon() : ui::Button(std::string()) {
+    initTheme();
+  }
+protected:
+  void onInitTheme(ui::InitThemeEvent& ev) {
+    ui::Button::onInitTheme(ev);
     setStyle(skin::SkinTheme::instance()->styles.warningBox());
   }
 };
@@ -93,6 +103,11 @@ public:
 // ColorBar::ScrollableView class
 
 ColorBar::ScrollableView::ScrollableView()
+{
+  initTheme();
+}
+
+void ColorBar::ScrollableView::onInitTheme(InitThemeEvent& ev)
 {
   SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
   setStyle(theme->styles.colorbarView());
@@ -112,8 +127,7 @@ ColorBar::ColorBar(int align)
   : Box(align)
   , m_buttons(int(PalButton::MAX))
   , m_splitter(Splitter::ByPercentage, VERTICAL)
-  , m_paletteView(true, PaletteView::FgBgColors, this,
-      Preferences::instance().colorBar.boxSize() * guiscale())
+  , m_paletteView(true, PaletteView::FgBgColors, this, 16)
   , m_remapButton("Remap")
   , m_selector(ColorSelector::NONE)
   , m_tintShadeTone(nullptr)
@@ -140,24 +154,13 @@ ColorBar::ColorBar(int align)
 
   SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
 
-  setBorder(gfx::Border(2*guiscale(), 0, 0, 0));
-  setChildSpacing(2*guiscale());
-
   m_buttons.addItem(theme->parts.palEdit());
   m_buttons.addItem(theme->parts.palSort());
   m_buttons.addItem(theme->parts.palPresets());
   m_buttons.addItem(theme->parts.palOptions());
 
   m_paletteView.setColumns(8);
-  m_fgColor.setSizeHint(0, m_fgColor.sizeHint().h);
-  m_bgColor.setSizeHint(0, m_bgColor.sizeHint().h);
-  m_buttons.setMaxSize(gfx::Size(m_buttons.sizeHint().w,
-                                 16*ui::guiscale()));
 
-  // TODO hardcoded scroll bar width should be get from skin.xml file
-  int scrollBarWidth = 6*guiscale();
-  m_scrollableView.horizontalBar()->setBarWidth(scrollBarWidth);
-  m_scrollableView.verticalBar()->setBarWidth(scrollBarWidth);
   setup_mini_look(m_scrollableView.horizontalBar());
   setup_mini_look(m_scrollableView.verticalBar());
 
@@ -171,7 +174,6 @@ ColorBar::ColorBar(int align)
   m_splitter.setId("palette_spectrum_splitter");
   m_splitter.setPosition(80);
   m_splitter.setExpansive(true);
-  m_splitter.setStyle(theme->styles.workspaceSplitter());
   m_splitter.addChild(&m_palettePlaceholder);
   m_splitter.addChild(&m_selectorPlaceholder);
 
@@ -183,8 +185,6 @@ ColorBar::ColorBar(int align)
 
   HBox* fgBox = new HBox;
   HBox* bgBox = new HBox;
-  fgBox->noBorderNoChildSpacing();
-  bgBox->noBorderNoChildSpacing();
   fgBox->addChild(&m_fgColor);
   fgBox->addChild(m_fgWarningIcon);
   bgBox->addChild(&m_bgColor);
@@ -211,6 +211,45 @@ ColorBar::ColorBar(int align)
   m_tooltips.addTooltipFor(m_fgWarningIcon, "Add foreground color to the palette", LEFT);
   m_tooltips.addTooltipFor(m_bgWarningIcon, "Add background color to the palette", LEFT);
 
+  InitTheme.connect(
+    [this, fgBox, bgBox]{
+      SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+
+      setBorder(gfx::Border(2*guiscale(), 0, 0, 0));
+      setChildSpacing(2*guiscale());
+
+      m_fgColor.resetSizeHint();
+      m_bgColor.resetSizeHint();
+      m_fgColor.setSizeHint(0, m_fgColor.sizeHint().h);
+      m_bgColor.setSizeHint(0, m_bgColor.sizeHint().h);
+      m_buttons.setMaxSize(gfx::Size(std::numeric_limits<int>::max(),
+                                     std::numeric_limits<int>::max())); // TODO add resetMaxSize
+      m_buttons.setMaxSize(gfx::Size(m_buttons.sizeHint().w,
+                                     16*ui::guiscale()));
+
+      // TODO hardcoded scroll bar width should be get from skin.xml file
+      int scrollBarWidth = 6*guiscale();
+      m_scrollableView.horizontalBar()->setBarWidth(scrollBarWidth);
+      m_scrollableView.verticalBar()->setBarWidth(scrollBarWidth);
+
+      // Change color-bar background color (not ColorBar::setBgColor)
+      this->Widget::setBgColor(theme->colors.tabActiveFace());
+      m_paletteView.setBgColor(theme->colors.tabActiveFace());
+      m_paletteView.setBoxSize(
+        Preferences::instance().colorBar.boxSize());
+      m_paletteView.initTheme();
+
+      // Styles
+      m_splitter.setStyle(theme->styles.workspaceSplitter());
+
+      fgBox->noBorderNoChildSpacing();
+      bgBox->noBorderNoChildSpacing();
+
+      if (m_palettePopup)
+        m_palettePopup->initTheme();
+    });
+  initTheme();
+
   // Set background color reading its value from the configuration.
   setBgColor(Preferences::instance().colorBar.bgColor());
 
@@ -219,10 +258,6 @@ ColorBar::ColorBar(int align)
 
   // Set foreground color reading its value from the configuration.
   setFgColor(Preferences::instance().colorBar.fgColor());
-
-  // Change color-bar background color (not ColorBar::setBgColor)
-  Widget::setBgColor(theme->colors.tabActiveFace());
-  m_paletteView.setBgColor(theme->colors.tabActiveFace());
 
   // Tooltips
   TooltipManager* tooltipManager = new TooltipManager();
@@ -242,6 +277,7 @@ ColorBar::ColorBar(int align)
     base::Bind<void>(&ColorBar::setupTooltips, this, tooltipManager));
 
   setEditMode(false);
+  registerCommands();
 }
 
 ColorBar::~ColorBar()
@@ -400,8 +436,7 @@ void ColorBar::onGeneralUpdate(doc::DocumentEvent& ev)
 
 void ColorBar::onAppPaletteChange()
 {
-  if (inEditMode())
-    return;
+  COLOR_BAR_TRACE("ColorBar::onAppPaletteChange()\n");
 
   fixColorIndex(m_fgColor);
   fixColorIndex(m_bgColor);
@@ -417,16 +452,16 @@ void ColorBar::onFocusPaletteView()
 
 void ColorBar::onBeforeExecuteCommand(CommandExecutionEvent& ev)
 {
-  if (ev.command()->id() == CommandId::SetPalette ||
-      ev.command()->id() == CommandId::LoadPalette ||
-      ev.command()->id() == CommandId::ColorQuantization)
+  if (ev.command()->id() == CommandId::SetPalette() ||
+      ev.command()->id() == CommandId::LoadPalette() ||
+      ev.command()->id() == CommandId::ColorQuantization())
     showRemap();
 }
 
 void ColorBar::onAfterExecuteCommand(CommandExecutionEvent& ev)
 {
-  if (ev.command()->id() == CommandId::Undo ||
-      ev.command()->id() == CommandId::Redo)
+  if (ev.command()->id() == CommandId::Undo() ||
+      ev.command()->id() == CommandId::Redo())
     invalidate();
 
   // If the sprite isn't Indexed anymore (e.g. because we've just
@@ -447,101 +482,21 @@ void ColorBar::onPaletteButtonClick()
 
   switch (static_cast<PalButton>(item)) {
 
-    case PalButton::EDIT: {
-      Command* cmd_show_palette_editor = CommandsModule::instance()->getCommandByName(CommandId::PaletteEditor);
-      Params params;
-      params.set("switch", "true");
-
-      UIContext::instance()->executeCommand(cmd_show_palette_editor, params);
+    case PalButton::EDIT:
+      setEditMode(!inEditMode());
       break;
-    }
 
-    case PalButton::SORT: {
-      gfx::Rect bounds = m_buttons.getItem(item)->bounds();
-
-      Menu menu;
-      MenuItem
-        rev("Reverse Colors"),
-        grd("Gradient"),
-        hue("Sort by Hue"),
-        sat("Sort by Saturation"),
-        bri("Sort by Brightness"),
-        lum("Sort by Luminance"),
-        red("Sort by Red"),
-        grn("Sort by Green"),
-        blu("Sort by Blue"),
-        alp("Sort by Alpha"),
-        asc("Ascending"),
-        des("Descending");
-      menu.addChild(&rev);
-      menu.addChild(&grd);
-      menu.addChild(new ui::MenuSeparator);
-      menu.addChild(&hue);
-      menu.addChild(&sat);
-      menu.addChild(&bri);
-      menu.addChild(&lum);
-      menu.addChild(new ui::MenuSeparator);
-      menu.addChild(&red);
-      menu.addChild(&grn);
-      menu.addChild(&blu);
-      menu.addChild(&alp);
-      menu.addChild(new ui::MenuSeparator);
-      menu.addChild(&asc);
-      menu.addChild(&des);
-
-      if (m_ascending) asc.setSelected(true);
-      else des.setSelected(true);
-
-      rev.Click.connect(base::Bind<void>(&ColorBar::onReverseColors, this));
-      grd.Click.connect(base::Bind<void>(&ColorBar::onGradient, this));
-      hue.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::HUE));
-      sat.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::SATURATION));
-      bri.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::VALUE));
-      lum.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::LUMA));
-      red.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::RED));
-      grn.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::GREEN));
-      blu.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::BLUE));
-      alp.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::ALPHA));
-      asc.Click.connect(base::Bind<void>(&ColorBar::setAscending, this, true));
-      des.Click.connect(base::Bind<void>(&ColorBar::setAscending, this, false));
-
-      menu.showPopup(gfx::Point(bounds.x, bounds.y+bounds.h));
+    case PalButton::SORT:
+      showPaletteSortOptions();
       break;
-    }
 
-    case PalButton::PRESETS: {
-      if (!m_palettePopup) {
-        try {
-          m_palettePopup.reset(new PalettePopup());
-        }
-        catch (const std::exception& ex) {
-          Console::showException(ex);
-          return;
-        }
-      }
-
-      if (!m_palettePopup->isVisible()) {
-        gfx::Rect bounds = m_buttons.getItem(item)->bounds();
-
-        m_palettePopup->showPopup(
-          gfx::Rect(bounds.x, bounds.y+bounds.h,
-                    ui::display_w()/2, ui::display_h()*3/4));
-      }
-      else {
-        m_palettePopup->closeWindow(NULL);
-      }
+    case PalButton::PRESETS:
+      showPalettePresets();
       break;
-    }
 
-    case PalButton::OPTIONS: {
-      Menu* menu = AppMenus::instance()->getPalettePopupMenu();
-      if (menu) {
-        gfx::Rect bounds = m_buttons.getItem(item)->bounds();
-
-        menu->showPopup(gfx::Point(bounds.x, bounds.y+bounds.h));
-      }
+    case PalButton::OPTIONS:
+      showPaletteOptions();
       break;
-    }
 
   }
 }
@@ -569,11 +524,7 @@ void ColorBar::onRemapButtonClick()
 
   // Check the remap
   if (!remap.isFor8bit() &&
-      Alert::show(
-        "Automatic Remap"
-        "<<The remap operation cannot be perfectly done for more than 256 colors."
-        "<<Do you want to continue anyway?"
-        "||&OK||&Cancel") != 1) {
+      Alert::show(Strings::alerts_auto_remap()) != 1) {
     return;
   }
 
@@ -629,6 +580,8 @@ void ColorBar::onRemapButtonClick()
 
 void ColorBar::onPaletteViewIndexChange(int index, ui::MouseButtons buttons)
 {
+  COLOR_BAR_TRACE("ColorBar::onPaletteViewIndexChange(%d)\n", index);
+
   base::ScopedValue<bool> lock(m_fromPalView, true, m_fromPalView);
 
   app::Color color = app::Color::fromIndex(index);
@@ -759,6 +712,9 @@ app::Color ColorBar::onPaletteViewGetBackgroundIndex()
 
 void ColorBar::onFgColorChangeFromPreferences()
 {
+  COLOR_BAR_TRACE("ColorBar::onFgColorChangeFromPreferences() -> %s\n",
+                  Preferences::instance().colorBar.fgColor().toString().c_str());
+
   if (m_fromPref)
     return;
 
@@ -768,6 +724,9 @@ void ColorBar::onFgColorChangeFromPreferences()
 
 void ColorBar::onBgColorChangeFromPreferences()
 {
+  COLOR_BAR_TRACE("ColorBar::onBgColorChangeFromPreferences() -> %s\n",
+                  Preferences::instance().colorBar.bgColor().toString().c_str());
+
   if (m_fromPref)
     return;
 
@@ -784,6 +743,8 @@ void ColorBar::onBgColorChangeFromPreferences()
 
 void ColorBar::onFgColorButtonBeforeChange(app::Color& color)
 {
+  COLOR_BAR_TRACE("ColorBar::onFgColorButtonBeforeChange(%s)\n", color.toString().c_str());
+
   if (m_fromPalView)
     return;
 
@@ -808,6 +769,8 @@ void ColorBar::onFgColorButtonBeforeChange(app::Color& color)
 
 void ColorBar::onFgColorButtonChange(const app::Color& color)
 {
+  COLOR_BAR_TRACE("ColorBar::onFgColorButtonChange(%s)\n", color.toString().c_str());
+
   if (m_fromFgButton)
     return;
 
@@ -824,6 +787,8 @@ void ColorBar::onFgColorButtonChange(const app::Color& color)
 
 void ColorBar::onBgColorButtonChange(const app::Color& color)
 {
+  COLOR_BAR_TRACE("ColorBar::onBgColorButtonChange(%s)\n", color.toString().c_str());
+
   if (m_fromBgButton)
     return;
 
@@ -843,6 +808,8 @@ void ColorBar::onBgColorButtonChange(const app::Color& color)
 
 void ColorBar::onColorButtonChange(const app::Color& color)
 {
+  COLOR_BAR_TRACE("ColorBar::onColorButtonChange(%s)\n", color.toString().c_str());
+
   if (!inEditMode() ||
       m_fromPref) {
     if (color.getType() == app::Color::IndexType)
@@ -1052,12 +1019,28 @@ void ColorBar::onCancel(Context* ctx)
 
 void ColorBar::onFixWarningClick(ColorButton* colorButton, ui::Button* warningIcon)
 {
-  Command* command = CommandsModule::instance()->getCommandByName(CommandId::AddColor);
+  COLOR_BAR_TRACE("ColorBar::onFixWarningClick(%s)\n", colorButton->getColor().toString().c_str());
+
+  Palette* palette = get_current_palette();
+  const int oldEntries = palette->size();
+
+  Command* command = Commands::instance()->byId(CommandId::AddColor());
   Params params;
   params.set("source", "color");
   params.set("color", colorButton->getColor().toString().c_str());
-
   UIContext::instance()->executeCommand(command, params);
+
+  // Select the new FG/BG color as an indexed color
+  if (inEditMode()) {
+    const int newEntries = palette->size();
+    if (oldEntries != newEntries) {
+      base::ScopedValue<bool> sync(m_fromPref, true, m_fromPref);
+      app::Color newIndex = app::Color::fromIndex(newEntries-1);
+      if (colorButton == &m_bgColor)
+        setBgColor(newIndex);
+      setFgColor(newIndex);
+    }
+  }
 }
 
 void ColorBar::onTimerTick()
@@ -1206,11 +1189,9 @@ void ColorBar::updateCurrentSpritePalette(const char* operationName)
 
 void ColorBar::setupTooltips(TooltipManager* tooltipManager)
 {
-  Params params;
-  params.set("switch", "true");
   tooltipManager->addTooltipFor(
     m_buttons.getItem((int)PalButton::EDIT),
-    key_tooltip("Edit Color", CommandId::PaletteEditor, params), BOTTOM);
+    key_tooltip("Edit Color", CommandId::PaletteEditor()), BOTTOM);
 
   tooltipManager->addTooltipFor(m_buttons.getItem((int)PalButton::SORT), "Sort & Gradients", BOTTOM);
   tooltipManager->addTooltipFor(m_buttons.getItem((int)PalButton::PRESETS), "Presets", BOTTOM);
@@ -1230,6 +1211,113 @@ void ColorBar::fixColorIndex(ColorButton& colorButton)
       color = Color::fromIndex(newIndex);
       colorButton.setColor(color);
     }
+  }
+}
+
+void ColorBar::registerCommands()
+{
+  Commands::instance()
+    ->add(
+      new QuickCommand(
+        CommandId::ShowPaletteSortOptions(),
+        [this]{ this->showPaletteSortOptions(); }))
+    ->add(
+      new QuickCommand(
+        CommandId::ShowPalettePresets(),
+        [this]{ this->showPalettePresets(); }))
+    ->add(
+      new QuickCommand(
+        CommandId::ShowPaletteOptions(),
+        [this]{ this->showPaletteOptions(); }));
+}
+
+void ColorBar::showPaletteSortOptions()
+{
+  gfx::Rect bounds = m_buttons.getItem(
+    static_cast<int>(PalButton::SORT))->bounds();
+
+  Menu menu;
+  MenuItem
+    rev("Reverse Colors"),
+    grd("Gradient"),
+    hue("Sort by Hue"),
+    sat("Sort by Saturation"),
+    bri("Sort by Brightness"),
+    lum("Sort by Luminance"),
+    red("Sort by Red"),
+    grn("Sort by Green"),
+    blu("Sort by Blue"),
+    alp("Sort by Alpha"),
+    asc("Ascending"),
+    des("Descending");
+  menu.addChild(&rev);
+  menu.addChild(&grd);
+  menu.addChild(new ui::MenuSeparator);
+  menu.addChild(&hue);
+  menu.addChild(&sat);
+  menu.addChild(&bri);
+  menu.addChild(&lum);
+  menu.addChild(new ui::MenuSeparator);
+  menu.addChild(&red);
+  menu.addChild(&grn);
+  menu.addChild(&blu);
+  menu.addChild(&alp);
+  menu.addChild(new ui::MenuSeparator);
+  menu.addChild(&asc);
+  menu.addChild(&des);
+
+  if (m_ascending) asc.setSelected(true);
+  else des.setSelected(true);
+
+  rev.Click.connect(base::Bind<void>(&ColorBar::onReverseColors, this));
+  grd.Click.connect(base::Bind<void>(&ColorBar::onGradient, this));
+  hue.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::HUE));
+  sat.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::SATURATION));
+  bri.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::VALUE));
+  lum.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::LUMA));
+  red.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::RED));
+  grn.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::GREEN));
+  blu.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::BLUE));
+  alp.Click.connect(base::Bind<void>(&ColorBar::onSortBy, this, SortPaletteBy::ALPHA));
+  asc.Click.connect(base::Bind<void>(&ColorBar::setAscending, this, true));
+  des.Click.connect(base::Bind<void>(&ColorBar::setAscending, this, false));
+
+  menu.showPopup(gfx::Point(bounds.x, bounds.y+bounds.h));
+}
+
+void ColorBar::showPalettePresets()
+{
+  if (!m_palettePopup) {
+    try {
+      m_palettePopup.reset(new PalettePopup());
+    }
+    catch (const std::exception& ex) {
+      Console::showException(ex);
+      return;
+    }
+  }
+
+  if (!m_palettePopup->isVisible()) {
+    gfx::Rect bounds = m_buttons.getItem(
+      static_cast<int>(PalButton::PRESETS))->bounds();
+
+    m_palettePopup->showPopup(
+      gfx::Rect(bounds.x, bounds.y+bounds.h,
+                ui::display_w()/2, ui::display_h()*3/4));
+  }
+  else {
+    m_palettePopup->closeWindow(NULL);
+  }
+}
+
+void ColorBar::showPaletteOptions()
+{
+  Menu* menu = AppMenus::instance()->getPalettePopupMenu();
+  if (menu) {
+    gfx::Rect bounds = m_buttons.getItem(
+      static_cast<int>(PalButton::OPTIONS))->bounds();
+
+    menu->showPopup(gfx::Point(bounds.x, bounds.y+bounds.h));
   }
 }
 

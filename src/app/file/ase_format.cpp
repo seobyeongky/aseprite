@@ -20,6 +20,7 @@
 #include "base/fs.h"
 #include "doc/doc.h"
 #include "fixmath/fixmath.h"
+#include "fmt/format.h"
 #include "ui/alert.h"
 #include "zlib.h"
 
@@ -178,7 +179,7 @@ private:
 class AseFormat : public FileFormat {
   const char* onGetName() const override { return "ase"; }
   const char* onGetExtensions() const override { return "ase,aseprite"; }
-  docio::FileFormat onGetDocioFormat() const override { return docio::FileFormat::ASE_ANIMATION; }
+  dio::FileFormat onGetDioFormat() const override { return dio::FileFormat::ASE_ANIMATION; }
   int onGetFlags() const override {
     return
       FILE_SUPPORT_LOAD |
@@ -413,14 +414,17 @@ bool AseFormat::onPostLoad(FileOp* fop)
   if (flat && ase_has_groups(group)) {
     if (fop->context() &&
         fop->context()->isUIAvailable() &&
-        ui::Alert::show("Warning"
-                        "<<The selected file \"%s\" has layer groups."
-                        "<<Do you want to open it with \"%s %s\" anyway?"
-                        "<<"
-                        "<<Note: Layers inside groups will be converted to top level layers."
-                        "||&Yes||&No",
-                        base::get_file_name(fop->filename()).c_str(),
-                        PACKAGE, ver.c_str()) != 1) {
+        ui::Alert::show(
+          fmt::format(
+            // This message is not translated because is used only in the old v1.1 only
+            "Warning"
+            "<<The selected file \"{0}\" has layer groups."
+            "<<Do you want to open it with \"{1} {2}\" anyway?"
+            "<<"
+            "<<Note: Layers inside groups will be converted to top level layers."
+            "||&Yes||&No",
+            base::get_file_name(fop->filename()),
+            PACKAGE, ver)) != 1) {
       return false;
     }
     ase_ungroup_all(group);
@@ -538,8 +542,12 @@ static bool ase_file_read_header(FILE* f, ASE_Header* header)
 
   header->size  = fgetl(f);
   header->magic = fgetw(f);
+
+  // Developers can open any .ase file
+#if !defined(ENABLE_DEVMODE)
   if (header->magic != ASE_FILE_MAGIC)
     return false;
+#endif
 
   header->frames     = fgetw(f);
   header->width      = fgetw(f);
@@ -567,6 +575,15 @@ static bool ase_file_read_header(FILE* f, ASE_Header* header)
     header->pixel_width = 1;
     header->pixel_height = 1;
   }
+
+#if defined(ENABLE_DEVMODE)
+  // This is useful to read broken .ase files
+  if (header->magic != ASE_FILE_MAGIC) {
+    header->frames  = 256;  // Frames number might be not enought for some files
+    header->width   = 1024; // Size doesn't matter, the sprite can be crop
+    header->height  = 1024;
+  }
+#endif
 
   fseek(f, header->pos+128, SEEK_SET);
   return true;
