@@ -23,8 +23,7 @@ protected:
 };
 
 ToggleStageCommand::ToggleStageCommand()
-  : Command("ToggleStage",
-            "Toggle Stage",
+  : Command("ToggleStage",  
             CmdUIOnlyFlag)
 {
 }
