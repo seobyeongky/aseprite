@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -139,6 +139,14 @@ public:
     , m_restoreUIScaling(m_pref.general.uiScale())
   {
     sectionListbox()->Change.connect(base::Bind<void>(&OptionsWindow::onChangeSection, this));
+
+    // Alerts
+    fileFormatDoesntSupportAlert()->setSelected(m_pref.saveFile.showFileFormatDoesntSupportAlert());
+    exportAnimationInSequenceAlert()->setSelected(m_pref.saveFile.showExportAnimationInSequenceAlert());
+    gifOptionsAlert()->setSelected(m_pref.gif.showAlert());
+    jpegOptionsAlert()->setSelected(m_pref.jpeg.showAlert());
+    advancedModeAlert()->setSelected(m_pref.advancedMode.showAlert());
+    resetAlerts()->Click.connect(base::Bind<void>(&OptionsWindow::onResetAlerts, this));
 
     // Cursor
     paintingCursorType()->setSelectedItemIndex(int(m_pref.cursor.paintingCursorType()));
@@ -384,6 +392,12 @@ public:
       warnings += "<<- " + Strings::alerts_restart_by_preferences_save_recovery_data_period();
     }
 
+    m_pref.saveFile.showFileFormatDoesntSupportAlert(fileFormatDoesntSupportAlert()->isSelected());
+    m_pref.saveFile.showExportAnimationInSequenceAlert(exportAnimationInSequenceAlert()->isSelected());
+    m_pref.gif.showAlert(gifOptionsAlert()->isSelected());
+    m_pref.jpeg.showAlert(jpegOptionsAlert()->isSelected());
+    m_pref.advancedMode.showAlert(advancedModeAlert()->isSelected());
+
     m_pref.editor.zoomFromCenterWithWheel(zoomFromCenterWithWheel()->isSelected());
     m_pref.editor.zoomFromCenterWithKeys(zoomFromCenterWithKeys()->isSelected());
     m_pref.editor.showScrollbars(showScrollbars()->isSelected());
@@ -558,6 +572,14 @@ private:
     // Load extension
     else if (item->getValue() == kSectionExtensionsId)
       loadExtensions();
+  }
+
+  void onResetAlerts() {
+    fileFormatDoesntSupportAlert()->setSelected(m_pref.saveFile.showFileFormatDoesntSupportAlert.defaultValue());
+    exportAnimationInSequenceAlert()->setSelected(m_pref.saveFile.showExportAnimationInSequenceAlert.defaultValue());
+    gifOptionsAlert()->setSelected(m_pref.gif.showAlert.defaultValue());
+    jpegOptionsAlert()->setSelected(m_pref.jpeg.showAlert.defaultValue());
+    advancedModeAlert()->setSelected(m_pref.advancedMode.showAlert.defaultValue());
   }
 
   void onChangeBgScope() {

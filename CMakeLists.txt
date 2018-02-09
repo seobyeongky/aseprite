@@ -55,7 +55,6 @@ enable_testing()
 
 option(WITH_WEBP_SUPPORT            "Enable support to load/save .webp files" off)
 option(WITH_GTK_FILE_DIALOG_SUPPORT "Enable support for the experimental native GTK File Dialog" off)
-option(WITH_DEPRECATED_GLIB_SUPPORT "Enable support for older glib versions" off)
 option(WITH_DESKTOP_INTEGRATION     "Enable desktop integration modules" off)
 option(WITH_QT_THUMBNAILER          "Enable kde5/qt5 thumnailer" off)
 
@@ -70,6 +69,7 @@ option(USE_SHARED_LIBWEBP "Use your installed copy of libwebp" off)
 option(USE_SHARED_TINYXML "Use your installed copy of tinyxml" off)
 option(USE_SHARED_PIXMAN  "Use your installed copy of pixman" off)
 option(USE_SHARED_FREETYPE "Use shared FreeType library" off)
+option(USE_SHARED_HARFBUZZ "Use shared HarfBuzz library" off)
 option(USE_SHARED_ALLEGRO4 "Use shared Allegro 4 library (without resize support)" off)
 option(ENABLE_MEMLEAK     "Enable memory-leaks detector (only for developers)" off)
 option(ENABLE_UPDATER     "Enable automatic check for updates" on)
@@ -90,6 +90,16 @@ if(APPLE)
 else()
   option(USE_ALLEG4_BACKEND "Use Allegro 4 backend" on)
   option(USE_SKIA_BACKEND   "Use Skia backend" off)
+endif()
+
+# Check valid gtk + libpng combination
+if(WITH_GTK_FILE_DIALOG_SUPPORT)
+  if(NOT USE_SHARED_LIBPNG)
+    message(FATAL_ERROR "Cannot compile with gtk and static libpng, set USE_SHARED_LIBPNG=ON")
+  endif()
+  if(NOT USE_SHARED_HARFBUZZ)
+    message(FATAL_ERROR "Cannot compile with gtk and static HarfBuzz, set USE_SHARED_HARFBUZZ=ON")
+  endif()
 endif()
 
 ######################################################################
@@ -258,8 +268,13 @@ endif()
 include_directories(${FREETYPE_INCLUDE_DIRS})
 
 # harfbuzz
-set(HARFBUZZ_LIBRARIES harfbuzz)
-set(HARFBUZZ_INCLUDE_DIRS ${HARFBUZZ_DIR}/src)
+if(USE_SHARED_HARFBUZZ)
+  find_package(HarfBuzz)
+else()
+  set(HARFBUZZ_LIBRARIES harfbuzz)
+  set(HARFBUZZ_INCLUDE_DIRS ${HARFBUZZ_DIR}/src)
+endif()
+include_directories(${HARFBUZZ_INCLUDE_DIRS})
 
 if(USE_SHARED_GIFLIB)
   find_package(GIF REQUIRED)
@@ -389,13 +404,6 @@ if(UNIX AND NOT APPLE AND NOT BEOS)
   if(XDGA_FOUND)
     list(APPEND PLATFORM_LIBS Xxf86dga ${X11_LIBRARIES})
   endif()
-
-  if(WITH_GTK_FILE_DIALOG_SUPPORT)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GTKMM gtkmm-3.0)
-    include_directories(${GTKMM_INCLUDE_DIRS})
-    link_directories(${GTKMM_LIBRARY_DIRS})
-  endif()
 endif()
 
 # -- Windows --
@@ -439,10 +447,6 @@ if(APPLE)
         set(WFLAGS "${WFLAGS} -Wno-deprecated-declarations")
     endif(COMPILER_GCC)
 endif(APPLE)
-
-if(WITH_DESKTOP_INTEGRATION)
-  add_subdirectory(desktop)
-endif()
 
 # Third parties
 add_subdirectory(third_party)

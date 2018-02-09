@@ -1,5 +1,5 @@
 // Aseprite UI Library
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -64,6 +64,14 @@ void Alert::addProgress()
   m_progress->setReadOnly(true);
   m_progressPlaceholder->addChild(m_progress);
   m_progressPlaceholder->setVisible(true);
+}
+
+CheckBox* Alert::addCheckBox(const std::string& text)
+{
+  auto checkBox = new CheckBox(text);
+  m_progressPlaceholder->addChild(checkBox);
+  m_progressPlaceholder->setVisible(true);
+  return checkBox;
 }
 
 void Alert::setProgress(double progress)
@@ -228,9 +236,10 @@ void Alert::processString(std::string& buf)
   for (auto it=m_buttons.begin(); it!=m_buttons.end(); ++it)
     box3->addChild(*it);
 
-  // Default button is the last one
+  // Default button is the first one (Enter default option, Esc should
+  // act like the last button)
   if (!m_buttons.empty())
-    m_buttons[m_buttons.size()-1]->setFocusMagnet(true);
+    m_buttons[0]->setFocusMagnet(true);
 }
 
 } // namespace ui
