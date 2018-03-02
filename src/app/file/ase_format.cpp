@@ -142,9 +142,20 @@ private:
 };
 
 class AseFormat : public FileFormat {
-  const char* onGetName() const override { return "ase"; }
-  const char* onGetExtensions() const override { return "ase,aseprite"; }
-  dio::FileFormat onGetDioFormat() const override { return dio::FileFormat::ASE_ANIMATION; }
+
+  const char* onGetName() const override {
+    return "ase";
+  }
+
+  void onGetExtensions(base::paths& exts) const override {
+    exts.push_back("ase");
+    exts.push_back("aseprite");
+  }
+
+  dio::FileFormat onGetDioFormat() const override {
+    return dio::FileFormat::ASE_ANIMATION;
+  }
+
   int onGetFlags() const override {
     return
       FILE_SUPPORT_LOAD |
@@ -1035,15 +1046,15 @@ static void ase_file_write_slice_chunk(FILE* f, dio::AsepriteFrameHeader* frame_
   for (auto key : range) {
     if (frame == fromFrame || key != oldKey) {
       fputl(frame, f);
-      fputl(key ? key->bounds().x: 0, f);
-      fputl(key ? key->bounds().y: 0, f);
+      fputl((int32_t)(key ? key->bounds().x: 0), f);
+      fputl((int32_t)(key ? key->bounds().y: 0), f);
       fputl(key ? key->bounds().w: 0, f);
       fputl(key ? key->bounds().h: 0, f);
 
       if (flags & ASE_SLICE_FLAG_HAS_CENTER_BOUNDS) {
         if (key && key->hasCenter()) {
-          fputl(key->center().x, f);
-          fputl(key->center().y, f);
+          fputl((int32_t)key->center().x, f);
+          fputl((int32_t)key->center().y, f);
           fputl(key->center().w, f);
           fputl(key->center().h, f);
         }
@@ -1057,8 +1068,8 @@ static void ase_file_write_slice_chunk(FILE* f, dio::AsepriteFrameHeader* frame_
 
       if (flags & ASE_SLICE_FLAG_HAS_PIVOT_POINT) {
         if (key && key->hasPivot()) {
-          fputl(key->pivot().x, f);
-          fputl(key->pivot().y, f);
+          fputl((int32_t)key->pivot().x, f);
+          fputl((int32_t)key->pivot().y, f);
         }
         else {
           fputl(0, f);

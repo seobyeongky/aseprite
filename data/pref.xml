@@ -93,6 +93,10 @@
       <value id="LEFT" value="1" />
       <value id="RIGHT" value="2" />
     </enum>
+    <enum id="HueSaturationMode">
+      <value id="HSV" value="0" />
+      <value id="HSL" value="1" />
+    </enum>
   </types>
 
   <global>
@@ -251,6 +255,7 @@
     <section id="save_file">
       <option id="show_file_format_doesnt_support_alert" type="bool" default="true" />
       <option id="show_export_animation_in_sequence_alert" type="bool" default="true" />
+      <option id="default_extension" type="std::string" default="&quot;aseprite&quot;" />
     </section>
     <section id="gif">
       <option id="show_alert" type="bool" default="true" />
@@ -260,6 +265,9 @@
     <section id="jpeg">
       <option id="show_alert" type="bool" default="true" />
       <option id="quality" type="double" default="1.0" migrate="JPEG.Quality" />
+    </section>
+    <section id="hue_saturation">
+      <option id="mode" type="HueSaturationMode" default="HueSaturationMode::HSL" />
     </section>
   </global>
 

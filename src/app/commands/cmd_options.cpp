@@ -13,6 +13,7 @@
 #include "app/console.h"
 #include "app/context.h"
 #include "app/extensions.h"
+#include "app/file/file.h"
 #include "app/file_selector.h"
 #include "app/i18n/strings.h"
 #include "app/ini_file.h"
@@ -139,6 +140,17 @@ public:
     , m_restoreUIScaling(m_pref.general.uiScale())
   {
     sectionListbox()->Change.connect(base::Bind<void>(&OptionsWindow::onChangeSection, this));
+
+    // Default extension to save files
+    {
+      std::string defExt = m_pref.saveFile.defaultExtension();
+      base::paths exts = get_writable_extensions();
+      for (const auto& e : exts) {
+        int index = defaultExtension()->addItem(e);
+        if (base::utf8_icmp(e, defExt) == 0)
+          defaultExtension()->setSelectedItemIndex(index);
+      }
+    }
 
     // Alerts
     fileFormatDoesntSupportAlert()->setSelected(m_pref.saveFile.showFileFormatDoesntSupportAlert());
@@ -376,6 +388,10 @@ public:
     m_pref.general.rewindOnStop(rewindOnStop()->isSelected());
     m_globPref.timeline.firstFrame(firstFrame()->textInt());
     m_pref.general.showFullPath(showFullPath()->isSelected());
+    {
+      Widget* defExt = defaultExtension()->getSelectedItem();
+      m_pref.saveFile.defaultExtension(defExt ? defExt->text(): std::string());
+    }
 
     bool expandOnMouseover = expandMenubarOnMouseover()->isSelected();
     m_pref.general.expandMenubarOnMouseover(expandOnMouseover);
@@ -878,9 +894,10 @@ private:
   }
 
   void onAddExtension() {
-    FileSelectorFiles filename;
+    base::paths exts = { "zip" };
+    base::paths filename;
     if (!app::show_file_selector(
-          "Add Extension", "", "zip",
+          "Add Extension", "", exts,
           FileSelectorType::Open, filename))
       return;
 
@@ -1028,11 +1045,11 @@ private:
     return base::normalize_path(rf.defaultFilename());
   }
 
-  static std::vector<std::string> themeFolders() {
+  static base::paths themeFolders() {
     ResourceFinder rf;
     rf.includeDataDir(skin::SkinTheme::kThemesFolderName);
 
-    std::vector<std::string> paths;
+    base::paths paths;
     while (rf.next())
       paths.push_back(base::normalize_path(rf.filename()));
     return paths;
