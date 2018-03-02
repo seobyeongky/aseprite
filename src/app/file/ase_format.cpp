@@ -185,184 +185,8 @@ bool AseFormat::onLoad(FileOp* fop)
   if (!decoder.decode())
     return false;
 
-  // Create the new sprite
-  UniquePtr<Sprite> sprite(new Sprite(header.depth == 32 ? IMAGE_RGB:
-      header.depth == 16 ? IMAGE_GRAYSCALE: IMAGE_INDEXED,
-      header.width, header.height, header.ncolors));
-
-  // Set frames and speed
-  sprite->setTotalFrames(frame_t(header.frames));
-  sprite->setDurationForAllFrames(header.speed);
-
-  // Set transparent entry
-  sprite->setTransparentColor(header.transparent_index);
-
-  // Set pixel ratio
-  sprite->setPixelRatio(PixelRatio(header.pixel_width, header.pixel_height));
-
-  // Set pivot
-  sprite->setPivot(header.pivot_x_percent / 100.0, header.pivot_y_percent / 100.0);
-
-  // Prepare variables for layer chunks
-  Layer* last_layer = sprite->root();
-  WithUserData* last_object_with_user_data = nullptr;
-  Cel* last_cel = nullptr;
-  int current_level = -1;
-  LayerList allLayers;
-
-  // Read frame by frame to end-of-file
-  for (frame_t frame(0); frame<sprite->totalFrames(); ++frame) {
-    // Start frame position
-    int frame_pos = ftell(f);
-    fop->setProgress((float)frame_pos / (float)header.size);
-
-    // Read frame header
-    ASE_FrameHeader frame_header;
-    ase_file_read_frame_header(f, &frame_header);
-
-    // Correct frame type
-    if (frame_header.magic == ASE_FILE_FRAME_MAGIC) {
-      // Use frame-duration field?
-      if (frame_header.duration > 0)
-        sprite->setFrameDuration(frame, frame_header.duration);
-
-      sprite->setFrameRootPosition(frame
-        , gfx::Point(frame_header.root_x, frame_header.root_y));
-
-      // Read chunks
-      for (int c=0; c<frame_header.chunks; c++) {
-        // Start chunk position
-        int chunk_pos = ftell(f);
-        fop->setProgress((float)chunk_pos / (float)header.size);
-
-        // Read chunk information
-        int chunk_size = fgetl(f);
-        int chunk_type = fgetw(f);
-
-        switch (chunk_type) {
-
-          case ASE_FILE_CHUNK_FLI_COLOR:
-          case ASE_FILE_CHUNK_FLI_COLOR2:
-            if (!ignore_old_color_chunks) {
-              Palette* prevPal = sprite->palette(frame);
-              UniquePtr<Palette> pal(chunk_type == ASE_FILE_CHUNK_FLI_COLOR ?
-                                     ase_file_read_color_chunk(f, prevPal, frame):
-                                     ase_file_read_color2_chunk(f, prevPal, frame));
-
-              if (prevPal->countDiff(pal.get(), NULL, NULL) > 0)
-                sprite->setPalette(pal.get(), true);
-            }
-            break;
-
-          case ASE_FILE_CHUNK_PALETTE: {
-            Palette* prevPal = sprite->palette(frame);
-            UniquePtr<Palette> pal(ase_file_read_palette_chunk(f, prevPal, frame));
-
-            if (prevPal->countDiff(pal.get(), NULL, NULL) > 0)
-              sprite->setPalette(pal.get(), true);
-
-            ignore_old_color_chunks = true;
-            break;
-          }
-
-          case ASE_FILE_CHUNK_LAYER: {
-            Layer* newLayer =
-              ase_file_read_layer_chunk(f, &header, sprite,
-                                        &last_layer,
-                                        &current_level);
-            if (newLayer) {
-              allLayers.push_back(newLayer);
-              last_object_with_user_data = newLayer;
-            }
-            break;
-          }
-
-          case ASE_FILE_CHUNK_CEL: {
-            Cel* cel =
-              ase_file_read_cel_chunk(f, sprite, allLayers, frame,
-                                      sprite->pixelFormat(), fop, &header,
-                                      chunk_pos+chunk_size);
-            if (cel) {
-              last_cel = cel;
-              last_object_with_user_data = cel->data();
-            }
-            break;
-          }
-
-          case ASE_FILE_CHUNK_CEL_EXTRA: {
-            if (last_cel)
-              ase_file_read_cel_extra_chunk(f, last_cel);
-            break;
-          }
-
-          case ASE_FILE_CHUNK_MASK: {
-            Mask* mask = ase_file_read_mask_chunk(f);
-            if (mask)
-              delete mask;      // TODO add the mask in some place?
-            else
-              fop->setError("Warning: error loading a mask chunk\n");
-            break;
-          }
-
-          case ASE_FILE_CHUNK_PATH:
-            // Ignore
-            break;
-
-          case ASE_FILE_CHUNK_FRAME_TAGS:
-            ase_file_read_frame_tags_chunk(f, &sprite->frameTags());
-            break;
-
-          case ASE_FILE_CHUNK_SLICES: {
-            ase_file_read_slices_chunk(f, sprite->slices());
-            break;
-          }
-
-          case ASE_FILE_CHUNK_SLICE: {
-            Slice* slice = ase_file_read_slice_chunk(f, sprite->slices());
-            if (slice)
-              last_object_with_user_data = slice;
-            break;
-          }
-
-          case ASE_FILE_CHUNK_USER_DATA: {
-            UserData userData;
-            ase_file_read_user_data_chunk(f, &userData);
-            if (last_object_with_user_data)
-              last_object_with_user_data->setUserData(userData);
-            break;
-          }
-
-          default:
-            fop->setError("Warning: Unsupported chunk type %d (skipping)\n", chunk_type);
-            break;
-        }
-
-        // Skip chunk size
-        fseek(f, chunk_pos+chunk_size, SEEK_SET);
-      }
-    }
-
-    // Skip frame size
-    fseek(f, frame_pos+frame_header.size, SEEK_SET);
-
-    // Just one frame?
-    if (fop->isOneFrame())
-      break;
-
-    if (fop->isStop())
-      break;
-  }
-
-  fop->createDocument(sprite);
-  sprite.release();
-
-  if (ferror(f)) {
-    fop->setError("Error reading file.\n");
-    return false;
-  }
-  else {
-    return true;
-  }
+  fop->createDocument(delegate.sprite());
+  return true;
 }
 
 bool AseFormat::onPostLoad(FileOp* fop)
@@ -501,7 +325,7 @@ bool AseFormat::onSave(FileOp* fop)
 
 #endif  // ENABLE_SAVE
 
-static bool ase_file_read_header(FILE* f, ASE_Header* header)
+static bool ase_file_read_header(FILE* f, AsepriteHeader* header)
 {
   header->pos = ftell(f);
 
@@ -554,7 +378,7 @@ static bool ase_file_read_header(FILE* f, ASE_Header* header)
   return true;
 }
 
-static void ase_file_prepare_header(FILE* f, ASE_Header* header, const Sprite* sprite,
+static void ase_file_prepare_header(FILE* f, AsepriteHeader* header, const Sprite* sprite,
                                     const frame_t firstFrame, const frame_t totalFrames)
 {
   header->pos = ftell(f);
@@ -619,7 +443,7 @@ static void ase_file_write_header_filesize(FILE* f, dio::AsepriteHeader* header)
   fseek(f, header->pos+header->size, SEEK_SET);
 }
 
-static void ase_file_read_frame_header(FILE* f, ASE_FrameHeader* frame_header)
+static void ase_file_read_frame_header(FILE* f, AsepriteFrameHeader* frame_header)
 {
   frame_header->size = fgetl(f);
   frame_header->magic = fgetw(f);
@@ -630,7 +454,7 @@ static void ase_file_read_frame_header(FILE* f, ASE_FrameHeader* frame_header)
   ase_file_read_padding(f, 2);
 }
 
-static void ase_file_prepare_frame_header(FILE* f, ASE_FrameHeader* frame_header)
+static void ase_file_prepare_frame_header(FILE* f, AsepriteFrameHeader* frame_header)
 {
   int pos = ftell(f);
 
