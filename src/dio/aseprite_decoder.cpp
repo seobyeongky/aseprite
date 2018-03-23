@@ -56,6 +56,9 @@ bool AsepriteDecoder::decode()
   // Set pixel ratio
   sprite->setPixelRatio(doc::PixelRatio(header.pixel_width, header.pixel_height));
 
+    // Set pivot
+  sprite->setPivot(header.pivot_x_percent / 100.0, header.pivot_y_percent / 100.0);
+
   // Prepare variables for layer chunks
   doc::Layer* last_layer = sprite->root();
   doc::WithUserData* last_object_with_user_data = nullptr;
@@ -527,7 +530,6 @@ void read_compressed_image(FileInterface* f,
 
       size_t uncompressed_bytes = scanline.size() - zstream.avail_out;
       if (uncompressed_bytes > 0) {
-        ASSERT(uncompressed_offset+uncompressed_bytes <= uncompressed.size());
         if (uncompressed_offset+uncompressed_bytes > uncompressed.size())
           throw base::Exception("Bad compressed image.");
 

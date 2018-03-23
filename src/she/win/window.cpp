@@ -36,16 +36,28 @@
   GetClientRect(m_hwnd, &rc);                           \
   MapWindowPoints(m_hwnd, NULL, (POINT*)&rc, 2)
 
-// Not yet ready because if we start receiving WM_POINTERDOWN messages
-// instead of WM_LBUTTONDBLCLK we lost the automatic double-click
-// messages.
-#define USE_EnableMouseInPointer 0
-
 #ifndef INTERACTION_CONTEXT_PROPERTY_MEASUREMENT_UNITS_SCREEN
 #define INTERACTION_CONTEXT_PROPERTY_MEASUREMENT_UNITS_SCREEN 1
 #endif
 
 namespace she {
+
+static PointerType wt_packet_pkcursor_to_pointer_type(int pkCursor)
+{
+  switch (pkCursor) {
+    case 0:
+    case 3:
+      return PointerType::Cursor;
+    case 1:
+    case 4:
+      return PointerType::Pen;
+    case 2:
+    case 5:
+    case 6: // Undocumented: Inverted stylus when EnableMouseInPointer() is on
+      return PointerType::Eraser;
+  }
+  return PointerType::Unknown;
+}
 
 WinWindow::WinWindow(int width, int height, int scale)
   : m_hwnd(nullptr)
@@ -59,9 +71,16 @@ WinWindow::WinWindow(int width, int height, int scale)
   , m_captureMouse(false)
   , m_customHcursor(false)
   , m_usePointerApi(false)
-  , m_ignoreMouseMessages(false)
   , m_lastPointerId(0)
   , m_ictx(nullptr)
+  , m_ignoreRandomMouseEvents(0)
+#if SHE_USE_POINTER_API_FOR_MOUSE
+  , m_emulateDoubleClick(false)
+  , m_doubleClickMsecs(GetDoubleClickTime())
+  , m_lastPointerDownTime(0)
+  , m_lastPointerDownButton(Event::NoneButton)
+  , m_pointerDownCount(0)
+#endif
   , m_hpenctx(nullptr)
   , m_pointerType(PointerType::Unknown)
   , m_pressure(0.0)
@@ -71,12 +90,20 @@ WinWindow::WinWindow(int width, int height, int scale)
       winApi.IsMouseInPointerEnabled &&
       winApi.GetPointerInfo &&
       winApi.GetPointerPenInfo) {
-#if USE_EnableMouseInPointer == 1
+    // Do not enable pointer API for mouse events because:
+    // - Wacom driver doesn't inform their messages in a correct
+    //   pointer API format (events from pen are reported as mouse
+    //   events and without eraser tip information).
+    // - We have to emulate the double-click for the regular mouse
+    //   (search for m_emulateDoubleClick).
+    // - Double click with Wacom stylus doesn't work.
+#if SHE_USE_POINTER_API_FOR_MOUSE
     if (!winApi.IsMouseInPointerEnabled()) {
       // Prefer pointer messages (WM_POINTER*) since Windows 8 instead
       // of mouse messages (WM_MOUSE*)
       winApi.EnableMouseInPointer(TRUE);
-      m_ignoreMouseMessages = (winApi.IsMouseInPointerEnabled() ? true: false);
+      m_emulateDoubleClick =
+        (winApi.IsMouseInPointerEnabled() ? true: false);
     }
 #endif
 
@@ -529,20 +556,17 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
     // Mouse and Trackpad Messages
 
     case WM_MOUSEMOVE: {
-      // If the pointer API is enable, we use WM_POINTERUPDATE instead
-      // of WM_MOUSEMOVE.  This check is here because Windows keeps
-      // sending us WM_MOUSEMOVE messages even when we call
-      // EnableMouseInPointer() (mainly when we use Alt+stylus we
-      // receive WM_MOUSEMOVE with the position of the mouse/trackpad
-      // + WM_POINTERUPDATE with the position of the pen)
-      if (m_ignoreMouseMessages)
-        break;
-
       Event ev;
       mouseEvent(lparam, ev);
 
       MOUSE_TRACE("MOUSEMOVE xy=%d,%d\n",
                   ev.position().x, ev.position().y);
+
+      if (m_ignoreRandomMouseEvents > 0) {
+        MOUSE_TRACE(" - IGNORED\n");
+        --m_ignoreRandomMouseEvents;
+        break;
+      }
 
       if (!m_hasMouse) {
         m_hasMouse = true;
@@ -769,13 +793,6 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
       MOUSE_TRACE("POINTERENTER id=%d xy=%d,%d\n",
                   pi.pointerId, ev.position().x, ev.position().y);
 
-#if USE_EnableMouseInPointer == 0
-      // This is necessary to avoid receiving random WM_MOUSEMOVE from
-      // the mouse position when we use Alt+pen tip.
-      // TODO Remove this line when we enable EnableMouseInPointer(TRUE);
-      m_ignoreMouseMessages = true;
-#endif
-
       if (pi.pointerType == PT_TOUCH || pi.pointerType == PT_PEN) {
         auto& winApi = system()->winApi();
         if (m_ictx && winApi.AddPointerInteractionContext)
@@ -800,10 +817,7 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
         break;
 
       MOUSE_TRACE("POINTERLEAVE id=%d\n", pi.pointerId);
-
-#if USE_EnableMouseInPointer == 0
-      m_ignoreMouseMessages = false;
-#endif
+      m_ignoreRandomMouseEvents = 0;
 
       if (pi.pointerType == PT_TOUCH || pi.pointerType == PT_PEN) {
         auto& winApi = system()->winApi();
@@ -842,15 +856,7 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
         }
       }
 
-      ev.setType(Event::MouseDown);
-      ev.setButton(
-        pi.ButtonChangeType == POINTER_CHANGE_FIRSTBUTTON_DOWN ? Event::LeftButton:
-        pi.ButtonChangeType == POINTER_CHANGE_SECONDBUTTON_DOWN ? Event::RightButton:
-        pi.ButtonChangeType == POINTER_CHANGE_THIRDBUTTON_DOWN ? Event::MiddleButton:
-        pi.ButtonChangeType == POINTER_CHANGE_FOURTHBUTTON_DOWN ? Event::X1Button:
-        pi.ButtonChangeType == POINTER_CHANGE_FIFTHBUTTON_DOWN ? Event::X2Button:
-        Event::NoneButton);
-      queueEvent(ev);
+      handlePointerButtonChange(ev, pi);
 
       MOUSE_TRACE("POINTERDOWN id=%d xy=%d,%d button=%d\n",
                   pi.pointerId, ev.position().x, ev.position().y,
@@ -873,15 +879,7 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
         }
       }
 
-      ev.setType(Event::MouseUp);
-      ev.setButton(
-        pi.ButtonChangeType == POINTER_CHANGE_FIRSTBUTTON_UP ? Event::LeftButton:
-        pi.ButtonChangeType == POINTER_CHANGE_SECONDBUTTON_UP ? Event::RightButton:
-        pi.ButtonChangeType == POINTER_CHANGE_THIRDBUTTON_UP ? Event::MiddleButton:
-        pi.ButtonChangeType == POINTER_CHANGE_FOURTHBUTTON_UP ? Event::X1Button:
-        pi.ButtonChangeType == POINTER_CHANGE_FIFTHBUTTON_UP ? Event::X2Button:
-        Event::NoneButton);
-      queueEvent(ev);
+      handlePointerButtonChange(ev, pi);
 
       MOUSE_TRACE("POINTERUP id=%d xy=%d,%d button=%d\n",
                   pi.pointerId, ev.position().x, ev.position().y,
@@ -894,6 +892,10 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
       Event ev;
       if (!pointerEvent(wparam, ev, pi))
         break;
+
+      // See the comment for m_ignoreRandomMouseEvents variable, and
+      // why here is = 2.
+      m_ignoreRandomMouseEvents = 2;
 
       if (pi.pointerType == PT_TOUCH || pi.pointerType == PT_PEN) {
         auto& winApi = system()->winApi();
@@ -915,6 +917,8 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
 
       ev.setType(Event::MouseMove);
       queueEvent(ev);
+
+      handlePointerButtonChange(ev, pi);
 
       MOUSE_TRACE("POINTERUPDATE id=%d xy=%d,%d\n",
                   pi.pointerId, ev.position().x, ev.position().y);
@@ -1088,6 +1092,8 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
     // Wintab API Messages
 
     case WT_PROXIMITY: {
+      MOUSE_TRACE("WT_PROXIMITY\n");
+
       bool entering_ctx = (LOWORD(lparam) ? true: false);
       if (!entering_ctx)
         m_pointerType = PointerType::Unknown;
@@ -1100,27 +1106,13 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
       HCTX ctx = (HCTX)lparam;
       PACKET packet;
 
-      if (api.packet(ctx, serial, &packet)) {
-        switch (packet.pkCursor) {
-          case 0:
-          case 3:
-            m_pointerType = PointerType::Cursor;
-            break;
-          case 1:
-          case 4:
-            m_pointerType = PointerType::Pen;
-            break;
-          case 2:
-          case 5:
-            m_pointerType = PointerType::Eraser;
-            break;
-          default:
-            m_pointerType = PointerType::Unknown;
-            break;
-        }
-      }
+      if (api.packet(ctx, serial, &packet))
+        m_pointerType = wt_packet_pkcursor_to_pointer_type(packet.pkCursor);
       else
         m_pointerType = PointerType::Unknown;
+
+      MOUSE_TRACE("WT_CSRCHANGE pointer=%d\n", m_pointerType);
+      break;
     }
 
     case WT_PACKET: {
@@ -1131,14 +1123,13 @@ LRESULT WinWindow::wndProc(UINT msg, WPARAM wparam, LPARAM lparam)
 
       if (api.packet(ctx, serial, &packet)) {
         m_pressure = packet.pkNormalPressure / 1000.0; // TODO get the maximum value
-
-        if (packet.pkCursor == 2 || packet.pkCursor == 5)
-          m_pointerType = PointerType::Eraser;
-        else
-          m_pointerType = PointerType::Pen;
+        m_pointerType = wt_packet_pkcursor_to_pointer_type(packet.pkCursor);
       }
       else
         m_pointerType = PointerType::Unknown;
+
+      MOUSE_TRACE("WT_PACKET pointer=%d m_pressure=%.16g\n",
+                  m_pointerType, m_pressure);
       break;
     }
 
@@ -1176,22 +1167,33 @@ bool WinWindow::pointerEvent(WPARAM wparam, Event& ev, POINTER_INFO& pi)
 
   switch (pi.pointerType) {
     case PT_MOUSE: {
+      MOUSE_TRACE("pi.pointerType PT_MOUSE\n");
       ev.setPointerType(PointerType::Mouse);
+
+      // If we use EnableMouseInPointer(true), events from Wacom
+      // stylus came as PT_MOUSE instead of PT_PEN with eraser
+      // flag. This is just insane, EnableMouseInPointer(true) is not
+      // an option at the moment if we want proper support for Wacom
+      // events.
       break;
     }
     case PT_TOUCH: {
+      MOUSE_TRACE("pi.pointerType PT_TOUCH\n");
       ev.setPointerType(PointerType::Touch);
       break;
     }
     case PT_TOUCHPAD: {
+      MOUSE_TRACE("pi.pointerType PT_TOUCHPAD\n");
       ev.setPointerType(PointerType::Touchpad);
       break;
     }
     case PT_PEN: {
+      MOUSE_TRACE("pi.pointerType PT_PEN\n");
       ev.setPointerType(PointerType::Pen);
 
       POINTER_PEN_INFO ppi;
       if (winApi.GetPointerPenInfo(pi.pointerId, &ppi)) {
+        MOUSE_TRACE(" - ppi.penFlags = %d\n", ppi.penFlags);
         if (ppi.penFlags & PEN_FLAG_ERASER)
           ev.setPointerType(PointerType::Eraser);
       }
@@ -1201,6 +1203,76 @@ bool WinWindow::pointerEvent(WPARAM wparam, Event& ev, POINTER_INFO& pi)
 
   m_lastPointerId = pi.pointerId;
   return true;
+}
+
+void WinWindow::handlePointerButtonChange(Event& ev, POINTER_INFO& pi)
+{
+  if (pi.ButtonChangeType == POINTER_CHANGE_NONE) {
+#if SHE_USE_POINTER_API_FOR_MOUSE
+    // Reset the counter of pointer down for the emulated double-click
+    if (m_emulateDoubleClick)
+      m_pointerDownCount = 0;
+#endif
+    return;
+  }
+
+  Event::MouseButton button = Event::NoneButton;
+  bool down = false;
+
+  switch (pi.ButtonChangeType) {
+    case POINTER_CHANGE_FIRSTBUTTON_DOWN:
+      down = true;
+    case POINTER_CHANGE_FIRSTBUTTON_UP:
+      button = Event::LeftButton;
+      break;
+    case  POINTER_CHANGE_SECONDBUTTON_DOWN:
+      down = true;
+    case POINTER_CHANGE_SECONDBUTTON_UP:
+      button = Event::RightButton;
+      break;
+    case POINTER_CHANGE_THIRDBUTTON_DOWN:
+      down = true;
+    case POINTER_CHANGE_THIRDBUTTON_UP:
+      button = Event::MiddleButton;
+      break;
+    case POINTER_CHANGE_FOURTHBUTTON_DOWN:
+      down = true;
+    case POINTER_CHANGE_FOURTHBUTTON_UP:
+      button = Event::X1Button;
+      break;
+    case POINTER_CHANGE_FIFTHBUTTON_DOWN:
+      down = true;
+    case POINTER_CHANGE_FIFTHBUTTON_UP:
+      button = Event::X2Button;
+      break;
+  }
+
+  if (button == Event::NoneButton)
+    return;
+
+  ev.setType(down ? Event::MouseDown: Event::MouseUp);
+  ev.setButton(button);
+
+#if SHE_USE_POINTER_API_FOR_MOUSE
+  if (down && m_emulateDoubleClick) {
+    if (button != m_lastPointerDownButton)
+      m_pointerDownCount = 0;
+
+    ++m_pointerDownCount;
+
+    base::tick_t curTime = base::current_tick();
+    if ((m_pointerDownCount == 2) &&
+        (curTime - m_lastPointerDownTime) <= m_doubleClickMsecs) {
+      ev.setType(Event::MouseDoubleClick);
+      m_pointerDownCount = 0;
+    }
+
+    m_lastPointerDownTime = curTime;
+    m_lastPointerDownButton = button;
+  }
+#endif
+
+  queueEvent(ev);
 }
 
 void WinWindow::handleInteractionContextOutput(

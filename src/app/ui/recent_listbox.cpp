@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,12 +13,14 @@
 #include "app/app.h"
 #include "app/commands/commands.h"
 #include "app/commands/params.h"
+#include "app/i18n/strings.h"
 #include "app/pref/preferences.h"
 #include "app/recent_files.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui_context.h"
 #include "base/bind.h"
 #include "base/fs.h"
+#include "ui/alert.h"
 #include "ui/graphics.h"
 #include "ui/link_label.h"
 #include "ui/listitem.h"
@@ -146,6 +148,12 @@ void RecentFilesListBox::onRebuildList()
 
 void RecentFilesListBox::onClick(const std::string& path)
 {
+  if (!base::is_file(path)) {
+    ui::Alert::show(Strings::alerts_recent_file_doesnt_exist());
+    App::instance()->recentFiles()->removeRecentFile(path);
+    return;
+  }
+
   Command* command = Commands::instance()->byId(CommandId::OpenFile());
   Params params;
   params.set("filename", path.c_str());
@@ -171,6 +179,12 @@ void RecentFoldersListBox::onRebuildList()
 
 void RecentFoldersListBox::onClick(const std::string& path)
 {
+  if (!base::is_directory(path)) {
+    ui::Alert::show(Strings::alerts_recent_folder_doesnt_exist());
+    App::instance()->recentFiles()->removeRecentFolder(path);
+    return;
+  }
+
   Command* command = Commands::instance()->byId(CommandId::OpenFile());
   Params params;
   params.set("folder", path.c_str());

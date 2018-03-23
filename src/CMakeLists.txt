@@ -1,8 +1,13 @@
 # Aseprite
-# Copyright (C) 2001-2017  David Capello
+# Copyright (C) 2001-2018  David Capello
 
 ######################################################################
 # Compiler-specific flags
+
+if(UNIX)
+  # All warnings except for switch cases with missing enum items
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-switch")
+endif()
 
 if(MSVC)
   # As Skia is compiled with /GL flag (whole program optimization),
@@ -34,13 +39,6 @@ if(USE_ALLEG4_BACKEND AND NOT USE_SHARED_ALLEGRO4)
 endif()
 
 ######################################################################
-# Add C++11 support only for our code (avoid Allegro)
-
-if(UNIX)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-switch -std=gnu++11")
-endif()
-
-######################################################################
 # pthread
 
 if (CMAKE_USE_PTHREADS_INIT)
@@ -68,6 +66,13 @@ if(NOT ENABLE_TRIAL_MODE)
   add_definitions(-DENABLE_SAVE -DENABLE_DATA_RECOVERY)
 else()
   add_definitions(-DENABLE_TRIAL_MODE)
+endif()
+
+######################################################################
+# Special developer mode
+
+if(ENABLE_DEVMODE)
+  add_definitions(-DENABLE_DEVMODE)
 endif()
 
 ######################################################################

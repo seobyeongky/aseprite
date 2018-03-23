@@ -115,6 +115,7 @@
       <option id="show_full_path" type="bool" default="true" />
       <option id="timeline_position" type="TimelinePosition" default="TimelinePosition::BOTTOM" />
       <option id="show_menu_bar" type="bool" default="true" />
+      <option id="recent_items" type="int" default="16" />
     </section>
     <section id="undo" text="Undo">
       <option id="size_limit" type="int" default="0" />
@@ -257,6 +258,15 @@
       <option id="show_export_animation_in_sequence_alert" type="bool" default="true" />
       <option id="default_extension" type="std::string" default="&quot;aseprite&quot;" />
     </section>
+    <section id="export_file">
+      <option id="show_overwrite_files_alert" type="bool" default="true" />
+      <option id="image_default_extension" type="std::string" default="&quot;png&quot;" />
+      <option id="animation_default_extension" type="std::string" default="&quot;gif&quot;" />
+    </section>
+    <section id="sprite_sheet">
+      <option id="show_overwrite_files_alert" type="bool" default="true" />
+      <option id="default_extension" type="std::string" default="&quot;png&quot;" />
+    </section>
     <section id="gif">
       <option id="show_alert" type="bool" default="true" />
       <option id="interlaced" type="bool" default="false" migrate="GIF.Interlaced" />
@@ -350,7 +360,9 @@
       <option id="resize_scale" type="double" default="1" />
       <option id="layer" type="std::string" />
       <option id="frame_tag" type="std::string" />
+      <option id="ani_dir" type="doc::AniDir" default="doc::AniDir::FORWARD" />
       <option id="apply_pixel_ratio" type="bool" default="false" />
+      <option id="for_twitter" type="bool" default="false" />
     </section>
     <section id="sprite_sheet">
       <option id="defined" type="bool" default="false" />

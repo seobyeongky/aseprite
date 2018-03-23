@@ -484,6 +484,7 @@ add_library(app-lib
   ui/editor/tool_loop_impl.cpp
   ui/editor/transform_handles.cpp
   ui/editor/zooming_state.cpp
+  ui/export_file_window.cpp
   ui/file_list.cpp
   ui/file_list_view.cpp
   ui/file_selector.cpp
@@ -536,6 +537,7 @@ add_library(app-lib
   util/expand_cel_canvas.cpp
   util/filetoks.cpp
   util/freetype_utils.cpp
+  util/layer_boundaries.cpp
   util/msk_file.cpp
   util/new_image_from_mask.cpp
   util/pic_file.cpp
@@ -594,8 +596,4 @@ endif()
 if(ENABLE_STEAM)
   add_definitions(-DENABLE_STEAM)
   target_link_libraries(app-lib steam-lib)
-endif()
-
-if(ENABLE_DEVMODE)
-  add_definitions(-DENABLE_DEVMODE)
 endif()
