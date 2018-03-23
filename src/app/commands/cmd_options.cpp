@@ -19,6 +19,7 @@
 #include "app/ini_file.h"
 #include "app/launcher.h"
 #include "app/pref/preferences.h"
+#include "app/recent_files.h"
 #include "app/resource_finder.h"
 #include "app/send_crash.h"
 #include "app/ui/color_button.h"
@@ -40,6 +41,7 @@
 
 namespace app {
 
+static const char* kSectionGeneralId = "section_general";
 static const char* kSectionBgId = "section_bg";
 static const char* kSectionGridId = "section_grid";
 static const char* kSectionThemeId = "section_theme";
@@ -142,19 +144,20 @@ public:
     sectionListbox()->Change.connect(base::Bind<void>(&OptionsWindow::onChangeSection, this));
 
     // Default extension to save files
-    {
-      std::string defExt = m_pref.saveFile.defaultExtension();
-      base::paths exts = get_writable_extensions();
-      for (const auto& e : exts) {
-        int index = defaultExtension()->addItem(e);
-        if (base::utf8_icmp(e, defExt) == 0)
-          defaultExtension()->setSelectedItemIndex(index);
-      }
-    }
+    fillExtensionsCombobox(defaultExtension(), m_pref.saveFile.defaultExtension());
+    fillExtensionsCombobox(exportImageDefaultExtension(), m_pref.exportFile.imageDefaultExtension());
+    fillExtensionsCombobox(exportAnimationDefaultExtension(), m_pref.exportFile.animationDefaultExtension());
+    fillExtensionsCombobox(exportSpriteSheetDefaultExtension(), m_pref.spriteSheet.defaultExtension());
+
+    // Number of recent items
+    recentFiles()->setValue(m_pref.general.recentItems());
+    clearRecentFiles()->Click.connect(base::Bind<void>(&OptionsWindow::onClearRecentFiles, this));
 
     // Alerts
     fileFormatDoesntSupportAlert()->setSelected(m_pref.saveFile.showFileFormatDoesntSupportAlert());
     exportAnimationInSequenceAlert()->setSelected(m_pref.saveFile.showExportAnimationInSequenceAlert());
+    overwriteFilesOnExportAlert()->setSelected(m_pref.exportFile.showOverwriteFilesAlert());
+    overwriteFilesOnExportSpriteSheetAlert()->setSelected(m_pref.spriteSheet.showOverwriteFilesAlert());
     gifOptionsAlert()->setSelected(m_pref.gif.showAlert());
     jpegOptionsAlert()->setSelected(m_pref.jpeg.showAlert());
     advancedModeAlert()->setSelected(m_pref.advancedMode.showAlert());
@@ -373,6 +376,11 @@ public:
     onChangeGridScope();
     sectionListbox()->selectIndex(m_curSection);
 
+    // Refill languages combobox when extensions are enabled/disabled
+    m_extLanguagesChanges =
+      App::instance()->extensions().LanguagesChange.connect(
+        base::Bind<void>(&OptionsWindow::refillLanguages, this));
+
     // Reload themes when extensions are enabled/disabled
     m_extThemesChanges =
       App::instance()->extensions().ThemesChange.connect(
@@ -384,13 +392,22 @@ public:
   }
 
   void saveConfig() {
+    // Update language
+    Strings::instance()->setCurrentLanguage(
+      language()->getItemText(language()->getSelectedItemIndex()));
+
     m_pref.general.autoshowTimeline(autotimeline()->isSelected());
     m_pref.general.rewindOnStop(rewindOnStop()->isSelected());
     m_globPref.timeline.firstFrame(firstFrame()->textInt());
     m_pref.general.showFullPath(showFullPath()->isSelected());
+    m_pref.saveFile.defaultExtension(getExtension(defaultExtension()));
+    m_pref.exportFile.imageDefaultExtension(getExtension(exportImageDefaultExtension()));
+    m_pref.exportFile.animationDefaultExtension(getExtension(exportAnimationDefaultExtension()));
+    m_pref.spriteSheet.defaultExtension(getExtension(exportSpriteSheetDefaultExtension()));
     {
-      Widget* defExt = defaultExtension()->getSelectedItem();
-      m_pref.saveFile.defaultExtension(defExt ? defExt->text(): std::string());
+      const int limit = recentFiles()->getValue();
+      m_pref.general.recentItems(limit);
+      App::instance()->recentFiles()->setLimit(limit);
     }
 
     bool expandOnMouseover = expandMenubarOnMouseover()->isSelected();
@@ -410,6 +427,8 @@ public:
 
     m_pref.saveFile.showFileFormatDoesntSupportAlert(fileFormatDoesntSupportAlert()->isSelected());
     m_pref.saveFile.showExportAnimationInSequenceAlert(exportAnimationInSequenceAlert()->isSelected());
+    m_pref.exportFile.showOverwriteFilesAlert(overwriteFilesOnExportAlert()->isSelected());
+    m_pref.spriteSheet.showOverwriteFilesAlert(overwriteFilesOnExportSpriteSheetAlert()->isSelected());
     m_pref.gif.showAlert(gifOptionsAlert()->isSelected());
     m_pref.jpeg.showAlert(jpegOptionsAlert()->isSelected());
     m_pref.advancedMode.showAlert(advancedModeAlert()->isSelected());
@@ -532,6 +551,22 @@ public:
 
 private:
 
+  void fillExtensionsCombobox(ui::ComboBox* combobox,
+                              const std::string& defExt) {
+    base::paths exts = get_writable_extensions();
+    for (const auto& e : exts) {
+      int index = combobox->addItem(e);
+      if (base::utf8_icmp(e, defExt) == 0)
+        combobox->setSelectedItemIndex(index);
+    }
+  }
+
+  std::string getExtension(ui::ComboBox* combobox) {
+    Widget* defExt = combobox->getSelectedItem();
+    ASSERT(defExt);
+    return (defExt ? defExt->text(): std::string());
+  }
+
   void selectScalingItems() {
     // Screen/UI Scale
     screenScale()->setSelectedItemIndex(
@@ -578,8 +613,13 @@ private:
     panel()->showChild(findChild(item->getValue().c_str()));
     m_curSection = sectionListbox()->getSelectedIndex();
 
-    if (item->getValue() == kSectionBgId)
+    // General section
+    if (item->getValue() == kSectionGeneralId)
+      loadLanguages();
+    // Background section
+    else if (item->getValue() == kSectionBgId)
       onChangeBgScope();
+    // Grid section
     else if (item->getValue() == kSectionGridId)
       onChangeGridScope();
     // Load themes
@@ -590,9 +630,15 @@ private:
       loadExtensions();
   }
 
+  void onClearRecentFiles() {
+    App::instance()->recentFiles()->clear();
+  }
+
   void onResetAlerts() {
     fileFormatDoesntSupportAlert()->setSelected(m_pref.saveFile.showFileFormatDoesntSupportAlert.defaultValue());
     exportAnimationInSequenceAlert()->setSelected(m_pref.saveFile.showExportAnimationInSequenceAlert.defaultValue());
+    overwriteFilesOnExportAlert()->setSelected(m_pref.exportFile.showOverwriteFilesAlert.defaultValue());
+    overwriteFilesOnExportSpriteSheetAlert()->setSelected(m_pref.spriteSheet.showOverwriteFilesAlert.defaultValue());
     gifOptionsAlert()->setSelected(m_pref.gif.showAlert.defaultValue());
     jpegOptionsAlert()->setSelected(m_pref.jpeg.showAlert.defaultValue());
     advancedModeAlert()->setSelected(m_pref.advancedMode.showAlert.defaultValue());
@@ -710,6 +756,25 @@ private:
     else {
       undoSizeLimit()->setEnabled(false);
       undoSizeLimit()->setText(kInfiniteSymbol);
+    }
+  }
+
+  void refillLanguages() {
+    language()->removeAllItems();
+    loadLanguages();
+  }
+
+  void loadLanguages() {
+    // Languages already loaded
+    if (language()->getItemCount() > 0)
+      return;
+
+    Strings* strings = Strings::instance();
+    std::string curLang = strings->currentLanguage();
+    for (const std::string& lang : strings->availableLanguages()) {
+      int i = language()->addItem(lang);
+      if (lang == curLang)
+        language()->setSelectedItemIndex(i);
     }
   }
 
@@ -1060,6 +1125,7 @@ private:
   DocumentPreferences& m_docPref;
   DocumentPreferences* m_curPref;
   int& m_curSection;
+  obs::scoped_connection m_extLanguagesChanges;
   obs::scoped_connection m_extThemesChanges;
   std::string m_restoreThisTheme;
   int m_restoreScreenScaling;
