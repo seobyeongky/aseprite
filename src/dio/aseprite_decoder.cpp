@@ -56,6 +56,9 @@ bool AsepriteDecoder::decode()
   // Set pixel ratio
   sprite->setPixelRatio(doc::PixelRatio(header.pixel_width, header.pixel_height));
 
+    // Set pivot
+  sprite->setPivot(header.pivot_x_percent / 100.0, header.pivot_y_percent / 100.0);
+
   // Prepare variables for layer chunks
   doc::Layer* last_layer = sprite->root();
   doc::WithUserData* last_object_with_user_data = nullptr;
