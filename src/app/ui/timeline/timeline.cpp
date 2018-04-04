@@ -314,7 +314,6 @@ void Timeline::updateUsingEditor(Editor* editor)
   if (m_range.enabled() &&
       m_rangeLocks == 0) {
     m_range.clearRange();
-    invalidate();
   }
 
   // We always update the editor. In this way the timeline keeps in
@@ -441,6 +440,9 @@ void Timeline::setLayer(Layer* layer)
     return;
   //ASSERT(m_editor != NULL);
 
+  invalidateLayer(m_layer);
+  invalidateLayer(layer);
+
   m_layer = layer;
 
   // Expand all parents
@@ -452,9 +454,8 @@ void Timeline::setLayer(Layer* layer)
       group = group->parent();
     }
     regenerateRows();
+    invalidate();
   }
-
-  invalidate();
 
   if (m_editor->layer() != layer)
     m_editor->setLayer(m_layer);
@@ -470,11 +471,20 @@ void Timeline::setFrame(frame_t frame, bool byUser)
   else if (frame >= m_sprite->totalFrames())
     frame = frame_t(m_sprite->totalFrames()-1);
 
-  m_frame = frame;
-  invalidate();
+  invalidateFrame(m_frame);
+  invalidateFrame(frame);
 
-  if (m_playable->frame() != frame) {
-    bool isPlaying = m_playable->isPlaying();
+  gfx::Rect onionRc = getOnionskinFramesBounds();
+
+  m_frame = frame;
+
+  // Invalidate the onionskin handles area
+  onionRc |= getOnionskinFramesBounds();
+  if (!onionRc.isEmpty())
+    invalidateRect(onionRc.offset(origin()));
+
+  if (m_editor->frame() != frame) {
+    const bool isPlaying = m_editor->isPlaying();
 
     if (isPlaying)
       m_playable->stop();
@@ -535,6 +545,10 @@ void Timeline::moveRange(Range& range)
     }
     ++j;
   }
+
+  // Select the range again (it might be lost between all the
+  // setLayer()/setFrame() calls).
+  m_range = range;
 }
 
 void Timeline::activateClipboardRange()
@@ -650,7 +664,7 @@ bool Timeline::onProcessMessage(Message* msg)
           if (selectFrame) {
             m_state = STATE_SELECTING_FRAMES;
             if (clearRange)
-              m_range.clearRange();
+              clearAndInvalidateRange();
             m_range.startRange(m_layer, m_clk.frame, Range::kFrames);
             m_startRange = m_range;
 
@@ -674,7 +688,7 @@ bool Timeline::onProcessMessage(Message* msg)
           else if (selectLayer) {
             m_state = STATE_SELECTING_LAYERS;
             if (clearRange)
-              m_range.clearRange();
+              clearAndInvalidateRange();
             m_range.startRange(m_rows[m_clk.layer].layer(),
                                m_frame, Range::kLayers);
             m_startRange = m_range;
@@ -716,7 +730,7 @@ bool Timeline::onProcessMessage(Message* msg)
           else {
             if (selectCel) {
               m_state = STATE_SELECTING_CELS;
-              m_range.clearRange();
+              clearAndInvalidateRange();
               m_range.startRange(m_rows[m_clk.layer].layer(),
                                  m_clk.frame, Range::kCels);
               m_startRange = m_range;
@@ -802,17 +816,26 @@ bool Timeline::onProcessMessage(Message* msg)
           }
 
           case STATE_MOVING_ONIONSKIN_RANGE_LEFT: {
+            gfx::Rect onionRc = getOnionskinFramesBounds();
+
             int newValue = m_origFrames + (m_clk.frame - hit.frame);
             docPref().onionskin.prevFrames(MAX(0, newValue));
-            invalidate();
+
+            onionRc |= getOnionskinFramesBounds();
+            invalidateRect(onionRc.offset(origin()));
             return true;
           }
 
-          case STATE_MOVING_ONIONSKIN_RANGE_RIGHT:
+          case STATE_MOVING_ONIONSKIN_RANGE_RIGHT: {
+            gfx::Rect onionRc = getOnionskinFramesBounds();
+
             int newValue = m_origFrames - (m_clk.frame - hit.frame);
             docPref().onionskin.nextFrames(MAX(0, newValue));
-            invalidate();
+
+            onionRc |= getOnionskinFramesBounds();
+            invalidateRect(onionRc.offset(origin()));
             return true;
+          }
         }
 
         // If the mouse pressed the mouse's button in the separator,
@@ -847,10 +870,14 @@ bool Timeline::onProcessMessage(Message* msg)
           }
 
           case STATE_SELECTING_FRAMES: {
+            invalidateRange();
+
             m_range = m_startRange;
             m_range.endRange(m_layer, hit.frame);
 
             setFrame(m_clk.frame = hit.frame, true);
+
+            invalidateRange();
             break;
           }
 
@@ -1222,8 +1249,7 @@ bool Timeline::onProcessMessage(Message* msg)
 
         case kKeyEsc:
           if (m_state == STATE_STANDBY) {
-            m_range.clearRange();
-            invalidate();
+            clearAndInvalidateRange();
           }
           else {
             m_state = STATE_STANDBY;
@@ -1543,6 +1569,7 @@ void Timeline::onAfterCommandExecution(CommandExecutionEvent& ev)
   if (!m_document)
     return;
 
+  // TODO improve this: no need to regenerate everything after each command
   regenerateRows();
   showCurrentCel();
   invalidate();
@@ -1625,7 +1652,7 @@ void Timeline::onRemoveFrame(doc::DocumentEvent& ev)
 
   // Disable the selected range when we remove frames
   if (m_range.enabled())
-    m_range.clearRange();
+    clearAndInvalidateRange();
 
   showCurrentCel();
   clearClipboardRange();
@@ -1635,8 +1662,7 @@ void Timeline::onRemoveFrame(doc::DocumentEvent& ev)
 void Timeline::onSelectionChanged(doc::DocumentEvent& ev)
 {
   if (m_rangeLocks == 0)
-    m_range.clearRange();
-  invalidate();
+    clearAndInvalidateRange();
 }
 
 void Timeline::onLayerNameChange(doc::DocumentEvent& ev)
@@ -1676,10 +1702,9 @@ void Timeline::onAfterFrameChanged(Editor* editor)
   setFrame(editor->frame(), false);
 
   if (!hasCapture())
-    m_range.clearRange();
+    clearAndInvalidateRange();
 
   showCurrentCel();
-  invalidate();
 }
 
 void Timeline::onAfterLayerChanged(Editor* editor)
@@ -1691,9 +1716,7 @@ void Timeline::onAfterLayerChanged(Editor* editor)
     m_range.clearRange();
 
   setLayer(editor->layer());
-
   showCurrentCel();
-  invalidate();
 }
 
 void Timeline::onDestroyEditor(Editor* editor)
@@ -1803,7 +1826,7 @@ void Timeline::drawClipboardRange(ui::Graphics* g)
   if (!m_clipboard_timer.isRunning())
     m_clipboard_timer.start();
 
-  IntersectClip clip(g, getCelsBounds());
+  IntersectClip clip(g, getRangeClipBounds(clipboard_range));
   if (clip) {
     CheckedDrawMode checked(g, m_offset_count,
                             gfx::rgba(0, 0, 0, 255),
@@ -2358,13 +2381,7 @@ void Timeline::drawRangeOutline(ui::Graphics* g)
 {
   auto& styles = skinTheme()->styles;
 
-  gfx::Rect clipBounds;
-  switch (m_range.type()) {
-    case Range::kCels: clipBounds = getCelsBounds(); break;
-    case Range::kFrames: clipBounds = getFrameHeadersBounds(); break;
-    case Range::kLayers: clipBounds = getLayerHeadersBounds(); break;
-  }
-  IntersectClip clip(g, clipBounds.enlarge(outlineWidth()));
+  IntersectClip clip(g, getRangeClipBounds(m_range).enlarge(outlineWidth()));
   if (!clip)
     return;
 
@@ -2715,6 +2732,17 @@ gfx::Rect Timeline::getRangeBounds(const Range& range) const
   return rc;
 }
 
+gfx::Rect Timeline::getRangeClipBounds(const Range& range) const
+{
+  gfx::Rect clipBounds;
+  switch (range.type()) {
+    case Range::kCels: clipBounds = getCelsBounds(); break;
+    case Range::kFrames: clipBounds = getFrameHeadersBounds(); break;
+    case Range::kLayers: clipBounds = getLayerHeadersBounds(); break;
+  }
+  return clipBounds;
+}
+
 void Timeline::invalidateHit(const Hit& hit)
 {
   if (hit.band >= 0) {
@@ -2724,6 +2752,40 @@ void Timeline::invalidateHit(const Hit& hit)
   }
 
   invalidateRect(getPartBounds(hit).offset(origin()));
+}
+
+void Timeline::invalidateLayer(const Layer* layer)
+{
+  if (layer == nullptr)
+    return;
+
+  layer_t layerIdx = getLayerIndex(layer);
+  if (layerIdx < firstLayer())
+    return;
+
+  gfx::Rect rc = getPartBounds(Hit(PART_ROW, layerIdx));
+  gfx::Rect rcCels;
+  rcCels |= getPartBounds(Hit(PART_CEL, layerIdx, firstFrame()));
+  rcCels |= getPartBounds(Hit(PART_CEL, layerIdx, lastFrame()));
+  rcCels &= getCelsBounds();
+  rc |= rcCels;
+  rc.offset(origin());
+  invalidateRect(rc);
+}
+
+void Timeline::invalidateFrame(const frame_t frame)
+{
+  if (!validFrame(frame))
+    return;
+
+  gfx::Rect rc = getPartBounds(Hit(PART_HEADER_FRAME, -1, frame));
+  gfx::Rect rcCels;
+  rcCels |= getPartBounds(Hit(PART_CEL, firstLayer(), frame));
+  rcCels |= getPartBounds(Hit(PART_CEL, lastLayer(), frame));
+  rcCels &= getCelsBounds();
+  rc |= rcCels;
+  rc.offset(origin());
+  invalidateRect(rc);
 }
 
 void Timeline::regenerateRows()
@@ -3043,9 +3105,7 @@ void Timeline::setHot(const Hit& hit)
   // If the part, layer or frame change.
   if (m_hot != hit) {
     // Invalidate the whole control.
-    if (m_state == STATE_MOVING_RANGE ||
-        hit.part == PART_RANGE_OUTLINE ||
-        m_hot.part == PART_RANGE_OUTLINE) {
+    if (isMovingCel()) {
       invalidate();
     }
     // Invalidate the old and new 'hot' thing.
@@ -3231,14 +3291,20 @@ void Timeline::showCel(layer_t layer, frame_t frame)
     viewport.y + layerBoxHeight()*(lastLayer() - layer) - scroll.y,
     frameBoxWidth(), layerBoxHeight());
 
+  const bool isPlaying = m_editor->isPlaying();
+
   // Here we use <= instead of < to avoid jumping between this
   // condition and the "else if" one when we are playing the
   // animation.
   if (celBounds.x <= viewport.x) {
     scroll.x -= viewport.x - celBounds.x;
+    if (isPlaying)
+      scroll.x -= viewport.w/2 - celBounds.w/2;
   }
   else if (celBounds.x2() > viewport.x2()) {
     scroll.x += celBounds.x2() - viewport.x2();
+    if (isPlaying)
+      scroll.x += viewport.w/2 - celBounds.w/2;
   }
 
   if (celBounds.y <= viewport.y) {
@@ -3451,12 +3517,26 @@ void Timeline::setViewScroll(const gfx::Point& pt)
   newScroll.x = MID(0, newScroll.x, maxPos.x);
   newScroll.y = MID(0, newScroll.y, maxPos.y);
 
-  if (newScroll == oldScroll)
-    return;
+  if (newScroll.y != oldScroll.y) {
+    gfx::Rect rc;
+    rc |= getPartBounds(Hit(PART_ROW, 0));
+    rc |= getPartBounds(Hit(PART_ROW, lastLayer()));
+    rc.offset(origin());
+    invalidateRect(rc);
+  }
+
+  if (newScroll != oldScroll) {
+    gfx::Rect rc;
+    if (m_tagBands > 0)
+      rc |= getPartBounds(Hit(PART_FRAME_TAG_BAND));
+    rc |= getFrameHeadersBounds();
+    rc |= getCelsBounds();
+    rc.offset(origin());
+    invalidateRect(rc);
+  }
 
   m_hbar.setPos(newScroll.x);
   m_vbar.setPos(newScroll.y);
-  invalidate();
 }
 
 
@@ -3540,6 +3620,26 @@ void Timeline::clearClipboardRange()
 
   clipboard::clear_content();
   m_clipboard_timer.stop();
+}
+
+void Timeline::invalidateRange()
+{
+  if (m_range.enabled()) {
+    for (const Layer* layer : m_range.selectedLayers())
+      invalidateLayer(layer);
+    for (const frame_t frame : m_range.selectedFrames())
+      invalidateFrame(frame);
+
+    invalidateHit(Hit(PART_RANGE_OUTLINE));
+  }
+}
+
+void Timeline::clearAndInvalidateRange()
+{
+  if (m_range.enabled()) {
+    invalidateRange();
+    m_range.clearRange();
+  }
 }
 
 DocumentPreferences& Timeline::docPref() const
@@ -3718,7 +3818,7 @@ bool Timeline::onClear(Context* ctx)
 void Timeline::onCancel(Context* ctx)
 {
   if (m_rangeLocks == 0)
-    m_range.clearRange();
+    clearAndInvalidateRange();
 
   clearClipboardRange();
   invalidate();
