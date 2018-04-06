@@ -242,6 +242,8 @@ bool AsepriteDecoder::readHeader(AsepriteHeader* header)
   header->ncolors    = read16();
   header->pixel_width = read8();
   header->pixel_height = read8();
+  header->pivot_x_percent = read16();
+  header->pivot_y_percent = read16();
 
   if (header->ncolors == 0)     // 0 means 256 (old .ase files)
     header->ncolors = 256;

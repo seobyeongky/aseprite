@@ -336,60 +336,7 @@ bool AseFormat::onSave(FileOp* fop)
 
 #endif  // ENABLE_SAVE
 
-static bool ase_file_read_header(FILE* f, AsepriteHeader* header)
-{
-  header->pos = ftell(f);
-
-  header->size  = fgetl(f);
-  header->magic = fgetw(f);
-
-  // Developers can open any .ase file
-#if !defined(ENABLE_DEVMODE)
-  if (header->magic != ASE_FILE_MAGIC)
-    return false;
-#endif
-
-  header->frames     = fgetw(f);
-  header->width      = fgetw(f);
-  header->height     = fgetw(f);
-  header->depth      = fgetw(f);
-  header->flags      = fgetl(f);
-  header->speed      = fgetw(f);
-  header->next       = fgetl(f);
-  header->frit       = fgetl(f);
-  header->transparent_index = fgetc(f);
-  header->ignore[0]  = fgetc(f);
-  header->ignore[1]  = fgetc(f);
-  header->ignore[2]  = fgetc(f);
-  header->ncolors    = fgetw(f);
-  header->pixel_width = fgetc(f);
-  header->pixel_height = fgetc(f);
-  header->pivot_x_percent = fgetw(f);
-  header->pivot_y_percent = fgetw(f);
-
-  if (header->ncolors == 0)     // 0 means 256 (old .ase files)
-    header->ncolors = 256;
-
-  if (header->pixel_width == 0 ||
-      header->pixel_height == 0) {
-    header->pixel_width = 1;
-    header->pixel_height = 1;
-  }
-
-#if defined(ENABLE_DEVMODE)
-  // This is useful to read broken .ase files
-  if (header->magic != ASE_FILE_MAGIC) {
-    header->frames  = 256;  // Frames number might be not enought for some files
-    header->width   = 1024; // Size doesn't matter, the sprite can be crop
-    header->height  = 1024;
-  }
-#endif
-
-  fseek(f, header->pos+128, SEEK_SET);
-  return true;
-}
-
-static void ase_file_prepare_header(FILE* f, AsepriteHeader* header, const Sprite* sprite,
+static void ase_file_prepare_header(FILE* f, dio::AsepriteHeader* header, const Sprite* sprite,
                                     const frame_t firstFrame, const frame_t totalFrames)
 {
   header->pos = ftell(f);
@@ -454,18 +401,7 @@ static void ase_file_write_header_filesize(FILE* f, dio::AsepriteHeader* header)
   fseek(f, header->pos+header->size, SEEK_SET);
 }
 
-static void ase_file_read_frame_header(FILE* f, AsepriteFrameHeader* frame_header)
-{
-  frame_header->size = fgetl(f);
-  frame_header->magic = fgetw(f);
-  frame_header->chunks = fgetw(f);
-  frame_header->duration = fgetw(f);
-  frame_header->root_x = fgetw(f);
-  frame_header->root_y = fgetw(f);
-  ase_file_read_padding(f, 2);
-}
-
-static void ase_file_prepare_frame_header(FILE* f, AsepriteFrameHeader* frame_header)
+static void ase_file_prepare_frame_header(FILE* f, dio::AsepriteFrameHeader* frame_header)
 {
   int pos = ftell(f);
 
