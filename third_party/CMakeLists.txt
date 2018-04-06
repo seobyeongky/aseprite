@@ -1,5 +1,5 @@
 # ASEPRITE
-# Copyright (C) 2001-2017  David Capello
+# Copyright (C) 2001-2018  David Capello
 
 include_directories(.)
 
@@ -13,7 +13,6 @@ endif()
 
 if(NOT USE_SHARED_ZLIB)
   set(SKIP_INSTALL_ALL on)
-  set(ZLIB_LIBRARY zlibstatic)
   # Don't build zlib tests
   set(ZLIB_TESTS OFF CACHE BOOL "Build zlib tests")
   add_subdirectory(zlib)
@@ -25,21 +24,18 @@ if(NOT USE_SHARED_LIBPNG)
   set(PNG_SHARED OFF CACHE BOOL "Build shared lib")
   set(PNG_STATIC ON CACHE BOOL "Build static lib")
   set(PNG_TESTS OFF CACHE BOOL "Build libpng tests")
-  set(ZLIB_INCLUDE_DIR "${ZLIB_INCLUDE_DIRS}")
   add_subdirectory(libpng)
 endif()
 
-if(WITH_WEBP_SUPPORT)
-  if(NOT USE_SHARED_LIBWEBP)
-    # Skia already includes webp library
-    if(NOT USE_SKIA_BACKEND)
-      add_subdirectory(libwebp-cmake)
-    endif()
-  endif()
+if(NOT USE_SHARED_GIFLIB)
+  set(GIFLIB_UTILS OFF CACHE BOOL "Build giflib utils")
+  add_subdirectory(giflib)
 endif()
 
-if(NOT USE_SHARED_GIFLIB)
-  add_subdirectory(giflib)
+if(WITH_WEBP_SUPPORT)
+  # Enable img2webp so "webpmux" library is built
+  set(WEBP_BUILD_IMG2WEBP ON CACHE BOOL "Build the img2webp animation tool.")
+  add_subdirectory(libwebp)
 endif()
 
 if(NOT USE_SHARED_TINYXML)
@@ -62,6 +58,7 @@ endif()
 
 if(NOT USE_SHARED_FREETYPE)
   set(SKIP_INSTALL_ALL on)
+  set(WITH_BZip2 OFF CACHE BOOL "")
 
   # If we don't do this, the compilation fails because it looks like
   # ftgzip.c includes our zlib.h, but uses the zconf.h in the
@@ -81,12 +78,27 @@ if(NOT USE_SHARED_FREETYPE)
   add_subdirectory(freetype2)
 
   if(NOT USE_SHARED_LIBPNG)
-    add_dependencies(freetype png_static)
+    add_dependencies(freetype ${PNG_LIBRARIES})
   endif()
 endif()
 
-add_subdirectory(harfbuzz-cmake)
+if(NOT USE_SHARED_HARFBUZZ)
+  if(NOT USE_SHARED_FREETYPE)
+    set(ENV{FREETYPE_DIR} ${FREETYPE_DIR})
+  endif()
+  set(HB_HAVE_FREETYPE ON CACHE BOOL "Enable freetype interop helpers")
+  set(HB_HAVE_GRAPHITE2 OFF CACHE BOOL "Enable Graphite2 complementary shaper")
+  set(HB_BUILTIN_UCDN ON CACHE BOOL "Use HarfBuzz provided UCDN")
+  set(HB_HAVE_GLIB OFF CACHE BOOL "Enable glib unicode functions")
+  set(HB_HAVE_ICU OFF CACHE BOOL "Enable icu unicode functions")
+  set(HB_HAVE_CORETEXT OFF CACHE BOOL "Enable CoreText shaper backend on macOS")
+  set(HB_HAVE_UNISCRIBE OFF CACHE BOOL "Enable Uniscribe shaper backend on Windows")
+  set(HB_HAVE_DIRECTWRITE OFF CACHE BOOL "Enable DirectWrite shaper backend on Windows")
+  add_subdirectory(harfbuzz)
+endif()
+
 add_subdirectory(simpleini)
+add_subdirectory(fmt)
 
 # Add cmark without tests
 if(NOT USE_SHARED_CMARK)
@@ -115,6 +127,45 @@ add_subdirectory(json11)
 set(ENABLE_TEST OFF CACHE BOOL "Enable unit and regression tests")
 set(ENABLE_COVERAGE OFF CACHE BOOL "Enable code coverage (GCC only, automatically sets ENABLE_TEST to ON)")
 set(ENABLE_LZMA OFF CACHE BOOL "Enable the use of the system LZMA library if found")
+set(ENABLE_CNG OFF CACHE BOOL "Enable the use of CNG(Crypto Next Generation)")
+set(ENABLE_BZip2 OFF CACHE BOOL "Enable the use of the system BZip2 library if found")
+set(ENABLE_LIBXML2 OFF CACHE BOOL "Enable the use of the system libxml2 library if found")
 add_subdirectory(libarchive)
 target_include_directories(archive_static INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libarchive/libarchive>)
+
+# benchmark
+if(ENABLE_BENCHMARKS)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Enable testing of the benchmark library.")
+  add_subdirectory(benchmark)
+endif()
+
+# mujs
+add_library(mujs
+  mujs/jsarray.c
+  mujs/jsboolean.c
+  mujs/jsbuiltin.c
+  mujs/jscompile.c
+  mujs/jsdate.c
+  mujs/jsdtoa.c
+  mujs/jsdump.c
+  mujs/jserror.c
+  mujs/jsfunction.c
+  mujs/jsgc.c
+  mujs/jsintern.c
+  mujs/jslex.c
+  mujs/jsmath.c
+  mujs/jsnumber.c
+  mujs/jsobject.c
+  mujs/json.c
+  mujs/jsparse.c
+  mujs/jsproperty.c
+  mujs/jsregexp.c
+  mujs/jsrun.c
+  mujs/jsstate.c
+  mujs/jsstring.c
+  mujs/jsvalue.c
+  mujs/regexp.c
+  mujs/utf.c
+  mujs/utftype.c)
+target_include_directories(mujs PUBLIC .)

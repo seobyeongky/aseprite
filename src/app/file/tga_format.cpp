@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -23,9 +23,18 @@ namespace app {
 using namespace base;
 
 class TgaFormat : public FileFormat {
-  const char* onGetName() const override { return "tga"; }
-  const char* onGetExtensions() const override { return "tga"; }
-  docio::FileFormat onGetDocioFormat() const override { return docio::FileFormat::TARGA_IMAGE; }
+  const char* onGetName() const override {
+    return "tga";
+  }
+
+  void onGetExtensions(base::paths& exts) const override {
+    exts.push_back("tga");
+  }
+
+  dio::FileFormat onGetDioFormat() const override {
+    return dio::FileFormat::TARGA_IMAGE;
+  }
+
   int onGetFlags() const override {
     return
       FILE_SUPPORT_LOAD |
@@ -388,7 +397,7 @@ bool TgaFormat::onSave(FileOp* fop)
   int depth = (image->pixelFormat() == IMAGE_RGB) ? 32 : 8;
   bool need_pal = (image->pixelFormat() == IMAGE_INDEXED)? true: false;
 
-  FileHandle handle(open_file_with_exception(fop->filename(), "wb"));
+  FileHandle handle(open_file_with_exception_sync_on_close(fop->filename(), "wb"));
   FILE* f = handle.get();
 
   fputc(0, f);                          /* id length (no id saved) */

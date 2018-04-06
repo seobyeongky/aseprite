@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -26,7 +26,7 @@
 #include "ui/slider.h"
 #include "ui/theme.h"
 
-#include <climits>
+#include <limits>
 
 namespace app {
 
@@ -239,17 +239,17 @@ ColorSliders::ColorSliders()
   // Same order as in Channel enum
   static_assert(Channel::Red == (Channel)0, "");
   static_assert(Channel::Alpha == (Channel)10, "");
-  addSlider(Channel::Red,           "R", 0, 255, -255, 255);
-  addSlider(Channel::Green,         "G", 0, 255, -255, 255);
-  addSlider(Channel::Blue,          "B", 0, 255, -255, 255);
+  addSlider(Channel::Red,           "R", 0, 255, -100, 100);
+  addSlider(Channel::Green,         "G", 0, 255, -100, 100);
+  addSlider(Channel::Blue,          "B", 0, 255, -100, 100);
   addSlider(Channel::HsvHue,        "H", 0, 360, -180, 180);
   addSlider(Channel::HsvSaturation, "S", 0, 100, -100, 100);
   addSlider(Channel::HsvValue,      "V", 0, 100, -100, 100);
   addSlider(Channel::HslHue,        "H", 0, 360, -180, 180);
   addSlider(Channel::HslSaturation, "S", 0, 100, -100, 100);
   addSlider(Channel::HslLightness,  "L", 0, 100, -100, 100);
-  addSlider(Channel::Gray,          "V", 0, 255, -255, 255);
-  addSlider(Channel::Alpha,         "A", 0, 255, -255, 255);
+  addSlider(Channel::Gray,          "V", 0, 255, -100, 100);
+  addSlider(Channel::Alpha,         "A", 0, 255, -100, 100);
 }
 
 void ColorSliders::setColor(const app::Color& color)
@@ -376,7 +376,8 @@ void ColorSliders::addSlider(const Channel channel,
   item.relSlider->setExpansive(true);
   item.relSlider->setVisible(false);
 
-  gfx::Size sz(INT_MAX, SkinTheme::instance()->dimensions.colorSliderHeight());
+  gfx::Size sz(std::numeric_limits<int>::max(),
+               SkinTheme::instance()->dimensions.colorSliderHeight());
   item.label->setMaxSize(sz);
   item.box->setMaxSize(sz);
   item.entry->setMaxSize(sz);
@@ -392,6 +393,12 @@ void ColorSliders::setAbsSliderValue(const Channel i, int value)
   updateEntryText(i);
 }
 
+void ColorSliders::setRelSliderValue(const Channel i, int value)
+{
+  m_items[i].relSlider->setValue(value);
+  updateEntryText(i);
+}
+
 int ColorSliders::getAbsSliderValue(const Channel i) const
 {
   return m_items[i].absSlider->getValue();
@@ -400,6 +407,22 @@ int ColorSliders::getAbsSliderValue(const Channel i) const
 int ColorSliders::getRelSliderValue(const Channel i) const
 {
   return m_items[i].relSlider->getValue();
+}
+
+void ColorSliders::syncRelHsvHslSliders()
+{
+  // From HSV -> HSL
+  if (m_items[Channel::HsvHue].show) {
+    setRelSliderValue(Channel::HslHue,        getRelSliderValue(Channel::HsvHue));
+    setRelSliderValue(Channel::HslSaturation, getRelSliderValue(Channel::HsvSaturation));
+    setRelSliderValue(Channel::HslLightness,  getRelSliderValue(Channel::HsvValue));
+  }
+  // From HSL -> HSV
+  else if (m_items[Channel::HslHue].show) {
+    setRelSliderValue(Channel::HsvHue,        getRelSliderValue(Channel::HslHue));
+    setRelSliderValue(Channel::HsvSaturation, getRelSliderValue(Channel::HslSaturation));
+    setRelSliderValue(Channel::HsvValue,      getRelSliderValue(Channel::HslLightness));
+  }
 }
 
 void ColorSliders::onSliderChange(const Channel i)

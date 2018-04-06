@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,6 +13,7 @@
 #include "app/app.h"
 #include "app/app_menus.h"
 #include "app/commands/commands.h"
+#include "app/i18n/strings.h"
 #include "app/ini_file.h"
 #include "app/modules/editors.h"
 #include "app/notification_delegate.h"
@@ -39,6 +40,7 @@
 #include "base/bind.h"
 #include "base/fs.h"
 #include "she/display.h"
+#include "she/system.h"
 #include "ui/message.h"
 #include "ui/splitter.h"
 #include "ui/system.h"
@@ -63,32 +65,21 @@ public:
 
     const int newScreenScale = 2;
     const int newUIScale = 1;
-    bool needsRestart = false;
 
     if (pref.general.screenScale() != newScreenScale)
       pref.general.screenScale(newScreenScale);
 
-    if (pref.general.uiScale() != newUIScale) {
+    if (pref.general.uiScale() != newUIScale)
       pref.general.uiScale(newUIScale);
-      needsRestart = true;
-    }
 
     pref.save();
 
-    // If the UI scale is greater than 100%, we would like to avoid
-    // setting the Screen Scale to 200% right now to avoid a worse
-    // effect to the user. E.g. If the UI Scale is 400% and Screen
-    // Scale is 100%, and the user choose to reset the scale, we
-    // cannot change the Screen Scale to 200% (we're going to
-    // increase the problem), so we change the Screen Scale to 100%
-    // just to show the "restart" message.
+    ui::set_theme(ui::get_theme(), newUIScale);
+
     Manager* manager = Manager::getDefault();
     she::Display* display = manager->getDisplay();
-    display->setScale(ui::guiscale() > newUIScale ? 1: newScreenScale);
+    display->setScale(newScreenScale);
     manager->setDisplay(display);
-
-    if (needsRestart)
-      Alert::show("Aseprite<<Restart the program.||&OK");
   }
 };
 
@@ -101,9 +92,6 @@ MainWindow::MainWindow()
   , m_devConsoleView(nullptr)
 #endif
 {
-  // Load all menus by first time.
-  AppMenus::instance()->reload();
-
   m_menuBar = new MainMenuBar();
   m_notifications = new Notifications();
   m_contextBar = new ContextBar();
@@ -115,6 +103,8 @@ MainWindow::MainWindow()
   m_previewEditor = new PreviewEditorWindow();
   m_stageView = new StageView();
   m_timeline = new Timeline();
+
+  Editor::registerCommands();
 
   m_workspace->setTabsBar(m_tabsBar);
   m_workspace->ActiveViewChanged.connect(&MainWindow::onActiveViewChange, this);
@@ -130,6 +120,9 @@ MainWindow::MainWindow()
   m_timeline->setExpansive(true);
   m_workspace->setExpansive(true);
   m_notifications->setVisible(false);
+
+  // Load all menus by first time.
+  AppMenus::instance()->reload();
 
   // Setup the menus
   m_menuBar->setMenu(AppMenus::instance()->getRootMenu());
@@ -150,13 +143,25 @@ MainWindow::MainWindow()
   timelineSplitter()->setPosition(75);
 
   // Reconfigure workspace when the timeline position is changed.
-  Preferences::instance().general.timelinePosition
+  auto& pref = Preferences::instance();
+  pref.general.timelinePosition
+    .AfterChange.connect(base::Bind<void>(&MainWindow::configureWorkspaceLayout, this));
+  pref.general.showMenuBar
     .AfterChange.connect(base::Bind<void>(&MainWindow::configureWorkspaceLayout, this));
 
   // Prepare the window
   remapWindow();
 
   AppMenus::instance()->rebuildRecentList();
+
+  // When the language is change, we reload the menu bar strings and
+  // relayout the whole main window.
+  Strings::instance()->LanguageChange.connect(
+    [this]{
+      m_menuBar->reload();
+      layout();
+      invalidate();
+    });
 }
 
 MainWindow::~MainWindow()
@@ -218,14 +223,6 @@ CheckUpdateDelegate* MainWindow::getCheckUpdateDelegate()
   return getHomeView();
 }
 #endif
-
-void MainWindow::reloadMenus()
-{
-  m_menuBar->reload();
-
-  layout();
-  invalidate();
-}
 
 void MainWindow::showNotification(INotificationDelegate* del)
 {
@@ -353,6 +350,13 @@ bool MainWindow::onProcessMessage(ui::Message* msg)
   return Window::onProcessMessage(msg);
 }
 
+void MainWindow::onInitTheme(ui::InitThemeEvent& ev)
+{
+  app::gen::MainWindow::onInitTheme(ev);
+  if (m_previewEditor)
+    m_previewEditor->initTheme();
+}
+
 void MainWindow::onSaveLayout(SaveLayoutEvent& ev)
 {
   // Invert the timeline splitter position before we save the setting.
@@ -450,6 +454,34 @@ void MainWindow::onContextMenuTab(Tabs* tabs, TabView* tabView)
     view->onTabPopup(m_workspace);
 }
 
+void MainWindow::onTabsContainerDoubleClicked(Tabs* tabs)
+{
+  WorkspacePanel* mainPanel = m_workspace->mainPanel();
+  WorkspaceView* oldActiveView = mainPanel->activeView();
+  app::Document* oldDoc = static_cast<app::Document*>(UIContext::instance()->activeDocument());
+
+  Command* command = Commands::instance()->byId(CommandId::NewFile());
+  UIContext::instance()->executeCommand(command);
+
+  app::Document* newDoc = static_cast<app::Document*>(UIContext::instance()->activeDocument());
+  if (newDoc != oldDoc) {
+    WorkspacePanel* doubleClickedPanel =
+      static_cast<WorkspaceTabs*>(tabs)->panel();
+
+    // TODO move this code to workspace?
+    // Put the new sprite in the double-clicked tabs control
+    if (doubleClickedPanel != mainPanel) {
+      WorkspaceView* newView = m_workspace->activeView();
+      m_workspace->removeView(newView);
+      m_workspace->addViewToPanel(doubleClickedPanel, newView, false, -1);
+
+      // Re-activate the old view in the main panel
+      mainPanel->setActiveView(oldActiveView);
+      doubleClickedPanel->setActiveView(newView);
+    }
+  }
+}
+
 void MainWindow::onMouseOverTab(Tabs* tabs, TabView* tabView)
 {
   // Note: tabView can be NULL
@@ -502,6 +534,16 @@ void MainWindow::configureWorkspaceLayout()
   bool normal = (m_mode == NormalMode);
   bool isDoc = (getDocView() != nullptr);
   bool isStageViewShown = (getStageView() != nullptr && getStageView()->isVisible());
+
+  if (she::instance()->menus() == nullptr ||
+      pref.general.showMenuBar()) {
+    if (!m_menuBar->parent())
+      menuBarPlaceholder()->insertChild(0, m_menuBar);
+  }
+  else {
+    if (m_menuBar->parent())
+      menuBarPlaceholder()->removeChild(m_menuBar);
+  }
 
   m_menuBar->setVisible(normal);
   m_tabsBar->setVisible(normal);

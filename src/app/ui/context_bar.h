@@ -31,10 +31,6 @@ namespace render {
   class DitheringMatrix;
 }
 
-namespace tools {
-  class Tool;
-}
-
 namespace ui {
   class Box;
   class Button;
@@ -43,6 +39,11 @@ namespace ui {
 }
 
 namespace app {
+
+  namespace tools {
+    class Ink;
+    class Tool;
+  }
 
   class BrushSlot;
   class DitheringSelector;
@@ -58,13 +59,14 @@ namespace app {
     void updateForTool(tools::Tool* tool);
     void updateForMovingPixels();
     void updateForSelectingBox(const std::string& text);
-    void updateToolLoopModifiersIndicators(app::tools::ToolLoopModifiers modifiers);
+    void updateToolLoopModifiersIndicators(tools::ToolLoopModifiers modifiers);
     void updateAutoSelectLayer(bool state);
     bool isAutoSelectLayer() const;
 
     void setActiveBrush(const doc::BrushRef& brush);
     void setActiveBrushBySlot(tools::Tool* tool, int slot);
-    doc::BrushRef activeBrush(tools::Tool* tool = nullptr) const;
+    doc::BrushRef activeBrush(tools::Tool* tool = nullptr,
+                              tools::Ink* ink = nullptr) const;
     void discardActiveBrush();
 
     BrushSlot createBrushSlotFromPreferences();
@@ -85,6 +87,7 @@ namespace app {
     obs::signal<void()> BrushChange;
 
   protected:
+    void onInitTheme(ui::InitThemeEvent& ev) override;
     void onSizeHint(ui::SizeHintEvent& ev) override;
     void onToolSetOpacity(const int& newOpacity);
     void onToolSetFreehandAlgorithm();
@@ -101,8 +104,11 @@ namespace app {
     void onActiveToolChange(tools::Tool* tool) override;
 
     void setupTooltips(ui::TooltipManager* tooltipManager);
+    void registerCommands();
+    void showBrushes();
 
     class ZoomButtons;
+    class BrushBackField;
     class BrushTypeField;
     class BrushAngleField;
     class BrushSizeField;
@@ -126,6 +132,7 @@ namespace app {
     class SymmetryField;
 
     ZoomButtons* m_zoomButtons;
+    BrushBackField* m_brushBack;
     BrushTypeField* m_brushType;
     BrushAngleField* m_brushAngle;
     BrushSizeField* m_brushSize;

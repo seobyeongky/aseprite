@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2017  David Capello
+// Copyright (C) 2017-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -220,6 +220,11 @@ Extension::~Extension()
     it.second.destroyMatrix();
 }
 
+void Extension::addLanguage(const std::string& id, const std::string& path)
+{
+  m_languages[id] = path;
+}
+
 void Extension::addTheme(const std::string& id, const std::string& path)
 {
   m_themes[id] = path;
@@ -297,7 +302,7 @@ void Extension::uninstallFiles(const std::string& path)
   json11::Json json;
   read_json_file(infoFn, json);
 
-  std::vector<std::string> installedDirs;
+  base::paths installedDirs;
 
   for (const auto& value : json["installedFiles"].array_items()) {
     std::string fn = base::join_path(path, value.string_value());
@@ -417,6 +422,19 @@ Extensions::~Extensions()
 {
   for (auto ext : m_extensions)
     delete ext;
+}
+
+std::string Extensions::languagePath(const std::string& langId)
+{
+  for (auto ext : m_extensions) {
+    if (!ext->isEnabled())      // Ignore disabled extensions
+      continue;
+
+    auto it = ext->languages().find(langId);
+    if (it != ext->languages().end())
+      return it->second;
+  }
+  return std::string();
 }
 
 std::string Extensions::themePath(const std::string& themeId)
@@ -545,7 +563,7 @@ ExtensionInfo Extensions::getCompressedExtensionInfo(const std::string& zipFn)
 Extension* Extensions::installCompressedExtension(const std::string& zipFn,
                                                   const ExtensionInfo& info)
 {
-  std::vector<std::string> installedFiles;
+  base::paths installedFiles;
 
   // Uncompress zipFn in info.dstPath
   {
@@ -572,7 +590,11 @@ Extension* Extensions::installCompressedExtension(const std::string& zipFn,
       installedFiles.push_back(fn);
 
       const std::string fullFn = base::join_path(info.dstPath, fn);
+#if _WIN32
+      archive_entry_copy_pathname_w(entry, base::from_utf8(fullFn).c_str());
+#else
       archive_entry_set_pathname(entry, fullFn.c_str());
+#endif
 
       LOG("EXT: Uncompressing file <%s> to <%s>\n",
           fn.c_str(), fullFn.c_str());
@@ -630,6 +652,24 @@ Extension* Extensions::loadExtension(const std::string& path,
 
   auto contributes = json["contributes"];
   if (contributes.is_object()) {
+    // Languages
+    auto languages = contributes["languages"];
+    if (languages.is_array()) {
+      for (const auto& lang : languages.array_items()) {
+        std::string langId = lang["id"].string_value();
+        std::string langPath = lang["path"].string_value();
+
+        // The path must be always relative to the extension
+        langPath = base::join_path(path, langPath);
+
+        LOG("EXT: New language '%s' in '%s'\n",
+            langId.c_str(),
+            langPath.c_str());
+
+        extension->addLanguage(langId, langPath);
+      }
+    }
+
     // Themes
     auto themes = contributes["themes"];
     if (themes.is_array()) {
@@ -695,6 +735,7 @@ Extension* Extensions::loadExtension(const std::string& path,
 
 void Extensions::generateExtensionSignals(Extension* extension)
 {
+  if (extension->hasLanguages()) LanguagesChange(extension);
   if (extension->hasThemes()) ThemesChange(extension);
   if (extension->hasPalettes()) PalettesChange(extension);
   if (extension->hasDitheringMatrices()) DitheringMatricesChange(extension);

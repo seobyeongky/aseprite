@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,11 +10,10 @@
 
 #include "app/ui/file_selector.h"
 
-#include "base/bind.h"
-#include "base/string.h"
 #include "app/app.h"
 #include "app/console.h"
 #include "app/file/file.h"
+#include "app/i18n/strings.h"
 #include "app/ini_file.h"
 #include "app/modules/gfx.h"
 #include "app/modules/gui.h"
@@ -26,12 +25,13 @@
 #include "base/bind.h"
 #include "base/convert_to.h"
 #include "base/fs.h"
-#include "base/split_string.h"
+#include "base/paths.h"
+#include "base/string.h"
 #include "base/unique_ptr.h"
+#include "fmt/format.h"
 #include "ui/ui.h"
 
 #include "new_folder_window.xml.h"
-#include "file_selector_extras.xml.h"
 
 #include <algorithm>
 #include <cctype>
@@ -82,11 +82,23 @@ static FileItemList* navigation_history = NULL; // Set of FileItems navigated
 static NullableIterator<FileItemList> navigation_position; // Current position in the navigation history
 
 // This map acts like a temporal customization by the user when he/she
-// wants to open files.  The key (first) is the real "showExtensions"
-// parameter given to the FileSelector::show() function. The value
-// (second) is the selected extension by the user. It's used only in
-// FileSelector::Open type of dialogs.
-static std::map<std::string, std::string> preferred_open_extensions;
+// wants to open files.  The key (first) is the real "allExtensions"
+// parameter given to the FileSelector::show() function where each
+// extension is concatenated with each other in one string separated
+// by ','.  The value (second) is the selected/preferred extension by
+// the user. It's used only in FileSelector::Open type of dialogs.
+static std::map<std::string, base::paths> preferred_open_extensions;
+
+static std::string merge_paths(const base::paths& paths)
+{
+  std::string k;
+  for (const auto& p : paths) {
+    if (!k.empty())
+      k.push_back(',');
+    k += p;
+  }
+  return k;
+}
 
 // Slot for App::Exit signal
 static void on_exit_delete_navigation_history()
@@ -168,6 +180,19 @@ public:
   }
 };
 
+class FileSelector::CustomFileExtensionItem : public ListItem {
+public:
+  CustomFileExtensionItem(const std::string& text,
+                          const base::paths& exts)
+    : ListItem(text)
+    , m_exts(exts)
+  {
+  }
+  const base::paths& extensions() const { return m_exts; }
+private:
+  base::paths m_exts;
+};
+
 // We have this dummy/hidden widget only to handle special navigation
 // with arrow keys. In the past this code was in the same FileSelector
 // itself, but there were problems adding that window as a message
@@ -235,89 +260,10 @@ private:
   FileSelector* m_filesel;
 };
 
-class FileSelector::ExtrasWindow : public PopupWindow {
-public:
-  ExtrasWindow(FileSelectorDelegate* delegate)
-    : PopupWindow("",
-                  ClickBehavior::CloseOnClickInOtherWindow,
-                  EnterBehavior::CloseOnEnter)
-    , m_delegate(delegate)
-    , m_extras(new gen::FileSelectorExtras) {
-
-    setAutoRemap(false);
-    setBorder(gfx::Border(4*guiscale()));
-
-    addChild(m_extras);
-    m_extras->resize()->setValue(
-      base::convert_to<std::string>(m_delegate->getResizeScale()));
-    m_delegate->fillLayersComboBox(m_extras->layers());
-    m_delegate->fillFramesComboBox(m_extras->frames());
-    m_extras->pixelRatio()->setSelected(m_delegate->applyPixelRatio());
-
-    m_extras->resize()->Change.connect(&ExtrasWindow::onUpdateExtras, this);
-    m_extras->layers()->Change.connect(&ExtrasWindow::onUpdateExtras, this);
-    m_extras->frames()->Change.connect(&ExtrasWindow::onUpdateExtras, this);
-    m_extras->pixelRatio()->Click.connect(base::Bind<void>(&ExtrasWindow::onUpdateExtras, this));
-  }
-
-  std::string extrasLabel() const {
-    std::string label = "Resize: " + m_extras->resize()->getSelectedItem()->text();
-
-    auto layerItem = m_extras->layers()->getSelectedItem();
-    if (layerItem && !layerItem->getValue().empty())
-      label += ", " + layerItem->text();
-
-    auto frameItem = m_extras->frames()->getSelectedItem();
-    if (frameItem && !frameItem->getValue().empty())
-      label += ", " + frameItem->text();
-
-    if (m_extras->pixelRatio()->isSelected()) {
-      PixelRatio pr = m_delegate->pixelRatio();
-      label += " (";
-      label += base::convert_to<std::string>(pr.w);
-      label += ":";
-      label += base::convert_to<std::string>(pr.h);
-      label += ")";
-    }
-
-    return label;
-  }
-
-  double resizeValue() const {
-    return base::convert_to<double>(m_extras->resize()->getValue());
-  }
-
-  std::string layersValue() const {
-    return m_extras->layers()->getValue();
-  }
-
-  std::string framesValue() const {
-    return m_extras->frames()->getValue();
-  }
-
-  bool applyPixelRatio() const {
-    return m_extras->pixelRatio()->isSelected();
-  }
-
-  obs::signal<void()> UpdateExtras;
-
-private:
-  void onUpdateExtras() {
-    UpdateExtras();
-  }
-
-  FileSelectorDelegate* m_delegate;
-  gen::FileSelectorExtras* m_extras;
-};
-
-FileSelector::FileSelector(FileSelectorType type, FileSelectorDelegate* delegate)
+FileSelector::FileSelector(FileSelectorType type)
   : m_type(type)
-  , m_delegate(delegate)
-  , m_extras(nullptr)
   , m_navigationLocked(false)
 {
-  bool withResizeOptions = (delegate && delegate->hasResizeCombobox());
-
   addChild(new ArrowNavigator(this));
 
   m_fileName = new CustomFileNameEntry;
@@ -347,20 +293,15 @@ FileSelector::FileSelector(FileSelectorType type, FileSelectorDelegate* delegate
   m_fileList->FileSelected.connect(base::Bind<void>(&FileSelector::onFileListFileSelected, this));
   m_fileList->FileAccepted.connect(base::Bind<void>(&FileSelector::onFileListFileAccepted, this));
   m_fileList->CurrentFolderChanged.connect(base::Bind<void>(&FileSelector::onFileListCurrentFolderChanged, this));
+}
 
-  if (withResizeOptions) {
-    extraOptions()->Click.connect(base::Bind<void>(&FileSelector::onExtraOptions, this));
-
-    m_extras = new ExtrasWindow(m_delegate);
-    m_extras->UpdateExtras.connect(base::Bind<void>(&FileSelector::updateExtraLabel, this));
-  }
-
-  updateExtraLabel();
+void FileSelector::setDefaultExtension(const std::string& extension)
+{
+  m_defExtension = extension;
 }
 
 FileSelector::~FileSelector()
 {
-  delete m_extras;
 }
 
 void FileSelector::goBack()
@@ -390,8 +331,8 @@ void FileSelector::goInsideFolder()
 bool FileSelector::show(
   const std::string& title,
   const std::string& initialPath,
-  const std::string& showExtensions,
-  FileSelectorFiles& output)
+  const base::paths& allExtensions,
+  base::paths& output)
 {
   FileSystemModule* fs = FileSystemModule::instance();
   LockFS lock(fs);
@@ -434,22 +375,25 @@ bool FileSelector::show(
 
   // Change the file formats/extensions to be shown
   std::string initialExtension = base::get_file_extension(initialPath);
-  std::string exts = showExtensions;
+  base::paths exts;
   if (m_type == FileSelectorType::Open ||
       m_type == FileSelectorType::OpenMultiple) {
-    auto it = preferred_open_extensions.find(exts);
+    std::string k = merge_paths(allExtensions);
+    auto it = preferred_open_extensions.find(k);
     if (it == preferred_open_extensions.end())
-      exts = showExtensions;
+      exts = allExtensions;
     else
-      exts = preferred_open_extensions[exts];
+      exts = preferred_open_extensions[k];
   }
   else {
     ASSERT(m_type == FileSelectorType::Save);
     if (!initialExtension.empty())
-      exts = initialExtension;
+      exts = base::paths{ initialExtension };
+    else
+      exts = allExtensions;
   }
   m_fileList->setMultipleSelection(m_type == FileSelectorType::OpenMultiple);
-  m_fileList->setExtensions(exts.c_str());
+  m_fileList->setExtensions(exts);
   if (start_folder)
     m_fileList->setCurrentFolder(start_folder);
 
@@ -465,37 +409,40 @@ bool FileSelector::show(
   fileType()->removeAllItems();
 
   // Get the default extension from the given initial file name
-  m_defExtension = initialExtension;
+  if (m_defExtension.empty())
+    m_defExtension = initialExtension;
 
   // File type for all formats
-  {
-    ListItem* item = new ListItem("All formats");
-    item->setValue(showExtensions);
-    fileType()->addItem(item);
-  }
+  fileType()->addItem(
+    new CustomFileExtensionItem("All formats", allExtensions));
+
   // One file type for each supported image format
-  std::vector<std::string> tokens;
-  base::split_string(showExtensions, tokens, ",");
-  for (const auto& tok : tokens) {
+  for (const auto& e : allExtensions) {
     // If the default extension is empty, use the first filter
     if (m_defExtension.empty())
-      m_defExtension = tok;
+      m_defExtension = e;
 
-    ListItem* item = new ListItem(tok + " files");
-    item->setValue(tok);
-    fileType()->addItem(item);
+    fileType()->addItem(
+      new CustomFileExtensionItem(e + " files",
+                                  base::paths{ e }));
   }
   // All files
-  {
-    ListItem* item = new ListItem("All files");
-    item->setValue("");         // Empty extensions means "*.*"
-    fileType()->addItem(item);
-  }
+  fileType()->addItem(
+    new CustomFileExtensionItem("All files",
+                                base::paths())); // Empty extensions means "*.*"
 
   // file name entry field
   m_fileName->setValue(base::get_file_name(initialPath).c_str());
   m_fileName->getEntryWidget()->selectText(0, -1);
-  fileType()->setValue(exts);
+
+  for (Widget* wItem : *fileType()) {
+    auto item = dynamic_cast<CustomFileExtensionItem*>(wItem);
+    ASSERT(item);
+    if (item && item->extensions() == exts) {
+      fileType()->setSelectedItem(item);
+      break;
+    }
+  }
 
   // setup the title of the window
   setText(title.c_str());
@@ -609,6 +556,38 @@ again:
     }
     // else file-name specified in the entry is really a file to open...
 
+    // check if the filename doesn't contain slashes or other ilegal characters...
+    bool has_invalid_char = (fn.find('/') != std::string::npos);
+#ifdef _WIN32
+    has_invalid_char =
+      has_invalid_char ||
+      (fn.find('\\') != std::string::npos ||
+       fn.find(':') != std::string::npos ||
+       fn.find('*') != std::string::npos ||
+       fn.find('?') != std::string::npos ||
+       fn.find('\"') != std::string::npos ||
+       fn.find('<') != std::string::npos ||
+       fn.find('>') != std::string::npos ||
+       fn.find('|') != std::string::npos);
+#endif
+    if (has_invalid_char) {
+      const char* invalid_chars =
+        "/"
+#ifdef _WIN32
+        " \\ : * ? \" < > |"
+#endif
+        ;
+
+      ui::Alert::show(
+        fmt::format(
+          Strings::alerts_invalid_chars_in_filename(),
+          invalid_chars));
+
+      // show the window again
+      setVisible(true);
+      goto again;
+    }
+
     // does it not have extension? ...we should add the extension
     // selected in the filetype combo-box
     if (!buf.empty() && base::get_file_extension(buf).empty()) {
@@ -617,8 +596,10 @@ again:
     }
 
     if (m_type == FileSelectorType::Save && base::is_file(buf)) {
-      int ret = Alert::show("Warning<<File exists, overwrite it?<<%s||&Yes||&No||&Cancel",
-                            base::get_file_name(buf).c_str());
+      int ret = Alert::show(
+        fmt::format(
+          Strings::alerts_overwrite_existent_file(),
+          base::get_file_name(buf)));
       if (ret == 2) {
         setVisible(true);
         goto again;
@@ -626,8 +607,7 @@ again:
       else if (ret == 1) {
         // Check for read-only attribute
         if (base::has_readonly_attr(buf)) {
-          ui::Alert::show(
-            "Problem<<The selected file is read-only. Try with other file.||&Go back");
+          ui::Alert::show(Strings::alerts_cannot_save_in_read_only_file());
 
           setVisible(true);
           goto again;
@@ -651,15 +631,6 @@ again:
     std::string lastpath = folder->keyName();
     set_config_string("FileSelect", "CurrentDirectory",
                       lastpath.c_str());
-
-    if (m_delegate &&
-        m_delegate->hasResizeCombobox() &&
-        m_extras) {
-      m_delegate->setResizeScale(m_extras->resizeValue());
-      m_delegate->setLayers(m_extras->layersValue());
-      m_delegate->setFrames(m_extras->framesValue());
-      m_delegate->setApplyPixelRatio(m_extras->applyPixelRatio());
-    }
   }
 
   return (!output.empty());
@@ -863,16 +834,22 @@ void FileSelector::onLocationCloseListBox()
 // change the file-extension in the 'filename' entry widget
 void FileSelector::onFileTypeChange()
 {
-  std::string exts = fileType()->getValue();
+  base::paths exts;
+  auto* selExtItem = dynamic_cast<CustomFileExtensionItem*>(fileType()->getSelectedItem());
+  if (selExtItem)
+    exts = selExtItem->extensions();
+
   if (exts != m_fileList->extensions()) {
     m_navigationLocked = true;
-    m_fileList->setExtensions(exts.c_str());
+    m_fileList->setExtensions(exts);
     m_navigationLocked = false;
 
     if (m_type == FileSelectorType::Open ||
         m_type == FileSelectorType::OpenMultiple) {
-      std::string origShowExtensions = fileType()->getItem(0)->getValue();
-      preferred_open_extensions[origShowExtensions] = fileType()->getValue();
+      const base::paths& allExtensions =
+        dynamic_cast<CustomFileExtensionItem*>(fileType()->getItem(0))->extensions();
+      std::string k = merge_paths(allExtensions);
+      preferred_open_extensions[k] = exts;
     }
   }
 
@@ -918,40 +895,13 @@ void FileSelector::onFileListCurrentFolderChanged()
   m_fileName->closeListBox();
 }
 
-void FileSelector::onExtraOptions()
-{
-  ASSERT(m_extras);
-
-  m_extras->remapWindow();
-  gfx::Rect bounds = m_extras->bounds();
-  ui::fit_bounds(BOTTOM, extraOptions()->bounds(), bounds);
-
-  m_extras->moveWindow(bounds);
-  m_extras->openWindow();
-}
-
 std::string FileSelector::getSelectedExtension() const
 {
-  std::string ext = fileType()->getValue();
-  if (ext.empty() || ext.find(',') != std::string::npos)
-    ext = m_defExtension;
-  return ext;
-}
-
-void FileSelector::updateExtraLabel()
-{
-  if (!m_extras) {
-    extraOptions()->setVisible(false);
-    return;
-  }
-
-  extraOptions()->setVisible(true);
-
-  std::string newLabel = m_extras->extrasLabel();
-  if (extraOptions()->text() != newLabel) {
-    extraOptions()->setText(newLabel);
-    extraOptions()->window()->layout();
-  }
+  auto selExtItem = dynamic_cast<CustomFileExtensionItem*>(fileType()->getSelectedItem());
+  if (selExtItem && selExtItem->extensions().size() == 1)
+    return selExtItem->extensions().front();
+  else
+    return m_defExtension;
 }
 
 } // namespace app

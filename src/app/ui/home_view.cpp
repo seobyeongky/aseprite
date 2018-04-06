@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -14,6 +14,7 @@
 #include "app/app_menus.h"
 #include "app/commands/commands.h"
 #include "app/commands/params.h"
+#include "app/i18n/strings.h"
 #include "app/ui/data_recovery_view.h"
 #include "app/ui/main_window.h"
 #include "app/ui/news_listbox.h"
@@ -24,6 +25,7 @@
 #include "app/ui_context.h"
 #include "base/bind.h"
 #include "base/exception.h"
+#include "fmt/format.h"
 #include "ui/label.h"
 #include "ui/resize_event.h"
 #include "ui/system.h"
@@ -42,10 +44,6 @@ HomeView::HomeView()
   , m_dataRecovery(nullptr)
   , m_dataRecoveryView(nullptr)
 {
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-  setBgColor(theme->colors.workspace());
-  setChildSpacing(8 * guiscale());
-
   newFile()->Click.connect(base::Bind(&HomeView::onNewFile, this));
   openFile()->Click.connect(base::Bind(&HomeView::onOpenFile, this));
   recoverSprites()->Click.connect(base::Bind(&HomeView::onRecoverSprites, this));
@@ -56,6 +54,14 @@ HomeView::HomeView()
 
   checkUpdate()->setVisible(false);
   recoverSpritesPlaceholder()->setVisible(false);
+
+  InitTheme.connect(
+    [this]{
+      SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+      setBgColor(theme->colors.workspace());
+      setChildSpacing(8 * guiscale());
+    });
+  initTheme();
 }
 
 HomeView::~HomeView()
@@ -79,7 +85,7 @@ void HomeView::showDataRecovery(crash::DataRecovery* dataRecovery)
 
 std::string HomeView::getTabText()
 {
-  return "Home";
+  return Strings::home_view_title();
 }
 
 TabIcon HomeView::getTabIcon()
@@ -108,13 +114,13 @@ void HomeView::onWorkspaceViewSelected()
 
 void HomeView::onNewFile()
 {
-  Command* command = CommandsModule::instance()->getCommandByName(CommandId::NewFile);
+  Command* command = Commands::instance()->byId(CommandId::NewFile());
   UIContext::instance()->executeCommand(command);
 }
 
 void HomeView::onOpenFile()
 {
-  Command* command = CommandsModule::instance()->getCommandByName(CommandId::OpenFile);
+  Command* command = Commands::instance()->byId(CommandId::OpenFile());
   UIContext::instance()->executeCommand(command);
 }
 
@@ -131,7 +137,7 @@ void HomeView::onResize(ui::ResizeEvent& ev)
 
 void HomeView::onCheckingUpdates()
 {
-  checkUpdate()->setText("Checking Updates...");
+  checkUpdate()->setText(Strings::home_view_checking_updates());
   checkUpdate()->setVisible(true);
 
   layout();
@@ -139,7 +145,8 @@ void HomeView::onCheckingUpdates()
 
 void HomeView::onUpToDate()
 {
-  checkUpdate()->setText(PACKAGE " is up to date");
+  checkUpdate()->setText(
+    fmt::format(Strings::home_view_is_up_to_date(), PACKAGE));
   checkUpdate()->setVisible(true);
 
   layout();
@@ -147,12 +154,16 @@ void HomeView::onUpToDate()
 
 void HomeView::onNewUpdate(const std::string& url, const std::string& version)
 {
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-
-  checkUpdate()->setText("New " PACKAGE " v" + version + " available!");
+  checkUpdate()->setText(
+    fmt::format(Strings::home_view_new_version_available(), PACKAGE, version));
   checkUpdate()->setUrl(url);
-  checkUpdate()->setStyle(theme->styles.workspaceUpdateLink());
   checkUpdate()->setVisible(true);
+  checkUpdate()->InitTheme.connect(
+    [this]{
+      SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+      checkUpdate()->setStyle(theme->styles.workspaceUpdateLink());
+    });
+  checkUpdate()->initTheme();
 
   layout();
 }

@@ -1,5 +1,5 @@
 // SHE library
-// Copyright (C) 2012-2016  David Capello
+// Copyright (C) 2012-2017  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -11,6 +11,7 @@
 #ifdef _WIN32
   #include "she/win/native_dialogs.h"
 #elif defined(__APPLE__)
+  #include "she/osx/menus.h"
   #include "she/osx/native_dialogs.h"
 #elif defined(ASEPRITE_WITH_GTK_FILE_DIALOG_SUPPORT) && defined(__linux__)
   #include "she/gtk/native_dialogs.h"
@@ -18,8 +19,11 @@
   #include "she/native_dialogs.h"
 #endif
 
+#include "base/unique_ptr.h"
+#include "ft/lib.h"
 #include "she/common/freetype_font.h"
 #include "she/common/sprite_sheet_font.h"
+#include "she/menus.h"
 #include "she/system.h"
 
 namespace she {
@@ -31,16 +35,33 @@ Logger* getOsxLogger();
 class CommonSystem : public System {
 public:
   CommonSystem()
-    : m_nativeDialogs(nullptr) {
+    : m_nativeDialogs(nullptr)
+    , m_menus(nullptr) {
+#ifdef _WIN32
+    m_useWintabAPI = true;
+#endif
   }
 
   ~CommonSystem() {
     delete m_nativeDialogs;
+    delete m_menus;
   }
 
   void dispose() override {
     delete this;
   }
+
+  void useWintabAPI(bool state) override {
+#ifdef _WIN32
+    m_useWintabAPI = state;
+#endif
+  }
+
+#ifdef _WIN32
+  bool useWintabAPI() const {
+    return m_useWintabAPI;
+  }
+#endif
 
   Logger* logger() override {
 #ifdef __APPLE__
@@ -48,6 +69,14 @@ public:
 #else
     return nullptr;
 #endif
+  }
+
+  Menus* menus() override {
+#ifdef __APPLE__
+    if (!m_menus)
+      m_menus = new MenusOSX();
+#endif
+    return m_menus;
   }
 
   NativeDialogs* nativeDialogs() override {
@@ -59,7 +88,7 @@ public:
       m_nativeDialogs = new NativeDialogsOSX();
 #elif defined(ASEPRITE_WITH_GTK_FILE_DIALOG_SUPPORT) && defined(__linux__)
     if (!m_nativeDialogs)
-      m_nativeDialogs = new NativeDialogsGTK3();
+      m_nativeDialogs = new NativeDialogsGTK();
 #endif
     return m_nativeDialogs;
   }
@@ -75,7 +104,9 @@ public:
   }
 
   Font* loadTrueTypeFont(const char* filename, int height) override {
-    return loadFreeTypeFont(filename, height);
+    if (!m_ft)
+      m_ft.reset(new ft::Lib());
+    return load_free_type_font(*m_ft.get(), filename, height);
   }
 
   KeyModifiers keyModifiers() override {
@@ -98,7 +129,12 @@ public:
   }
 
 private:
+#ifdef _WIN32
+  bool m_useWintabAPI;
+#endif
   NativeDialogs* m_nativeDialogs;
+  Menus* m_menus;
+  base::UniquePtr<ft::Lib> m_ft;
 };
 
 } // namespace she

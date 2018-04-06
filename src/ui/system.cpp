@@ -10,6 +10,7 @@
 
 #include "ui/system.h"
 
+#include "base/thread.h"
 #include "gfx/point.h"
 #include "she/display.h"
 #include "she/surface.h"
@@ -20,14 +21,15 @@
 #include "ui/manager.h"
 #include "ui/overlay.h"
 #include "ui/overlay_manager.h"
+#include "ui/scale.h"
 #include "ui/theme.h"
 #include "ui/widget.h"
 
 namespace ui {
 
-// Global UI Screen Scaling factor
-
-static int g_guiscale = 1;
+// This is used to check if calls to UI layer are made from the non-UI
+// thread. (Which might be catastrofic.)
+base::thread::native_handle_type main_gui_thread;
 
 // Current mouse cursor type.
 
@@ -169,9 +171,9 @@ static void update_mouse_cursor()
   }
 }
 
-UISystem::UISystem(int scale)
+UISystem::UISystem()
 {
-  g_guiscale = scale;
+  main_gui_thread = base::this_thread::native_handle();
   mouse_cursor_type = kOutsideDisplay;
   support_native_custom_cursor =
     ((she::instance() &&
@@ -187,18 +189,13 @@ UISystem::~UISystem()
   OverlayManager::destroyInstance();
 
   // finish theme
-  set_theme(nullptr);
+  set_theme(nullptr, guiscale());
 
   details::exitWidgets();
 
   _internal_set_mouse_display(nullptr);
   if (!update_custom_native_cursor(nullptr))
     update_mouse_overlay(nullptr);
-}
-
-int guiscale()
-{
-  return g_guiscale;
 }
 
 void _internal_set_mouse_display(she::Display* display)
@@ -314,5 +311,17 @@ void set_mouse_position(const gfx::Point& newPos)
 
   _internal_set_mouse_position(newPos);
 }
+
+bool is_ui_thread()
+{
+  return (main_gui_thread == base::this_thread::native_handle());
+}
+
+#ifdef _DEBUG
+void assert_ui_thread()
+{
+  ASSERT(is_ui_thread());
+}
+#endif
 
 } // namespace ui

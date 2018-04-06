@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -45,15 +45,14 @@ protected:
 };
 
 PasteTextCommand::PasteTextCommand()
-  : Command("PasteText",
-            "Insert Text",
-            CmdUIOnlyFlag)
+  : Command(CommandId::PasteText(), CmdUIOnlyFlag)
 {
 }
 
 bool PasteTextCommand::onEnabled(Context* ctx)
 {
-  return ctx->checkFlags(ContextFlags::ActiveDocumentIsWritable);
+  return ctx->checkFlags(ContextFlags::ActiveDocumentIsWritable |
+                         ContextFlags::ActiveLayerIsEditable);
 }
 
 class PasteTextWindow : public app::gen::PasteText {
@@ -91,11 +90,11 @@ private:
   }
 
   void onSelectFontFile() {
-    FileSelectorFiles face;
+    base::paths exts = { "ttf", "ttc", "otf", "dfont" };
+    base::paths face;
     if (!show_file_selector(
           "Select a TrueType Font",
-          m_face,
-          "ttf,ttc,otf,dfont",
+          m_face, exts,
           FileSelectorType::Open, face))
       return;
 
@@ -195,9 +194,7 @@ void PasteTextCommand::onExecute(Context* ctx)
     }
   }
   catch (const std::exception& ex) {
-    ui::Alert::show(PACKAGE
-                    "<<%s"
-                    "||&OK", ex.what());
+    Console::showException(ex);
   }
 }
 

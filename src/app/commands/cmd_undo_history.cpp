@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2015-2016  David Capello
+// Copyright (C) 2015-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -52,8 +52,9 @@ public:
   };
 
   UndoHistoryWindow(Context* ctx)
-    : m_ctx(ctx),
-      m_document(nullptr) {
+    : m_ctx(ctx)
+    , m_document(nullptr) {
+    m_title = text();
     actions()->Change.connect(&UndoHistoryWindow::onChangeAction, this);
   }
 
@@ -141,6 +142,21 @@ private:
     actions()->selectChild(item);
   }
 
+  void onDeleteUndoState(DocumentUndo* history,
+                         undo::UndoState* state) override {
+    for (auto child : actions()->children()) {
+      Item* item = static_cast<Item*>(child);
+      if (item->state() == state) {
+        actions()->removeChild(item);
+        item->deferDelete();
+        break;
+      }
+    }
+
+    actions()->layout();
+    view()->updateView();
+  }
+
   void onAfterUndo(DocumentUndo* history) override {
     selectState(history->currentState());
   }
@@ -151,6 +167,10 @@ private:
 
   void onClearRedo(DocumentUndo* history) override {
     refillList(history);
+  }
+
+  void onTotalUndoSizeChange(DocumentUndo* history) override {
+    updateTitle();
   }
 
   void attachDocument(app::Document* document) {
@@ -164,6 +184,7 @@ private:
     history->add_observer(this);
 
     refillList(history);
+    updateTitle();
   }
 
   void detachDocument() {
@@ -173,6 +194,7 @@ private:
     clearList();
     m_document->undoHistory()->remove_observer(this);
     m_document = nullptr;
+    updateTitle();
   }
 
   void clearList() {
@@ -217,9 +239,19 @@ private:
     }
   }
 
+  void updateTitle() {
+    if (!m_document)
+      setText(m_title);
+    else
+      setTextf("%s (%s)",
+               m_title.c_str(),
+               base::get_pretty_memory_size(m_document->undoHistory()->totalUndoSize()).c_str());
+  }
+
   Context* m_ctx;
   app::Document* m_document;
   doc::frame_t m_frame;
+  std::string m_title;
 };
 
 class UndoHistoryCommand : public Command {
@@ -234,9 +266,7 @@ protected:
 static UndoHistoryWindow* g_window = NULL;
 
 UndoHistoryCommand::UndoHistoryCommand()
-  : Command("UndoHistory",
-            "Undo History",
-            CmdUIOnlyFlag)
+  : Command(CommandId::UndoHistory(), CmdUIOnlyFlag)
 {
 }
 
@@ -246,7 +276,7 @@ void UndoHistoryCommand::onExecute(Context* ctx)
     g_window = new UndoHistoryWindow(ctx);
 
   if (g_window->isVisible())
-    g_window->setVisible(false);
+    g_window->closeWindow(nullptr);
   else
     g_window->openWindow();
 }

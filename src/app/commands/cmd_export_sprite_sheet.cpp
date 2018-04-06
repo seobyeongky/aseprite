@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -16,11 +16,13 @@
 #include "app/document_exporter.h"
 #include "app/file/file.h"
 #include "app/file_selector.h"
+#include "app/i18n/strings.h"
 #include "app/modules/editors.h"
 #include "app/pref/preferences.h"
 #include "app/restore_visible_layers.h"
 #include "app/ui/editor/editor.h"
 #include "app/ui/layer_frame_comboboxes.h"
+#include "app/ui/optional_alert.h"
 #include "app/ui/status_bar.h"
 #include "app/ui/timeline/timeline.h"
 #include "base/bind.h"
@@ -29,6 +31,7 @@
 #include "base/string.h"
 #include "doc/frame_tag.h"
 #include "doc/layer.h"
+#include "fmt/format.h"
 
 #include "export_sprite_sheet.xml.h"
 
@@ -138,7 +141,6 @@ namespace {
          !dataname.empty() &&
          base::is_file(dataname))) {
       std::stringstream text;
-      text << "Export Sprite Sheet Warning<<Do you want to overwrite the following file(s)?";
 
       if (base::is_file(filename))
         text << "<<" << base::get_file_name(filename).c_str();
@@ -146,8 +148,12 @@ namespace {
       if (base::is_file(dataname))
         text << "<<" << base::get_file_name(dataname).c_str();
 
-      text << "||&Yes||&No";
-      if (Alert::show(text.str().c_str()) != 1)
+      int ret = OptionalAlert::show(
+        Preferences::instance().spriteSheet.showOverwriteFilesAlert,
+        1, // Yes is the default option when the alert dialog is disabled
+        fmt::format(Strings::alerts_overwrite_files_on_export_sprite_sheet(),
+                    text.str()));
+      if (ret != 1)
         return false;
     }
     return true;
@@ -186,6 +192,7 @@ public:
       m_sprite, frames(), m_docPref.spriteSheet.frameTag());
 
     openGenerated()->setSelected(m_docPref.spriteSheet.openGenerated());
+    trimEnabled()->setSelected(m_docPref.spriteSheet.trim());
 
     borderPadding()->setTextf("%d", m_docPref.spriteSheet.borderPadding());
     shapePadding()->setTextf("%d", m_docPref.spriteSheet.shapePadding());
@@ -239,10 +246,12 @@ public:
 
     if (m_filename.empty() ||
         m_filename == kSpecifiedFilename) {
-      if (base::utf8_icmp(base::get_file_extension(site.document()->filename()), "png") == 0)
-        m_filename = base + "-sheet.png";
+      std::string defExt = Preferences::instance().spriteSheet.defaultExtension();
+
+      if (base::utf8_icmp(base::get_file_extension(site.document()->filename()), defExt) == 0)
+        m_filename = base + "-sheet." + defExt;
       else
-        m_filename = base + ".png";
+        m_filename = base + "." + defExt;
     }
 
     if (m_dataFilename.empty() ||
@@ -354,6 +363,10 @@ public:
       return 0;
   }
 
+  bool trimValue() const {
+    return trimEnabled()->isSelected();
+  }
+
   bool openGeneratedValue() const {
     return openGenerated()->isSelected();
   }
@@ -446,11 +459,10 @@ private:
   }
 
   void onImageFilename() {
-    std::string exts = get_writable_extensions();
-
-    FileSelectorFiles newFilename;
+    base::paths newFilename;
     if (!app::show_file_selector(
-          "Save Sprite Sheet", m_filename, exts,
+          "Save Sprite Sheet", m_filename,
+          get_writable_extensions(),
           FileSelectorType::Save, newFilename))
       return;
 
@@ -471,9 +483,10 @@ private:
 
   void onDataFilename() {
     // TODO hardcoded "json" extension
-    FileSelectorFiles newFilename;
+    base::paths exts = { "json" };
+    base::paths newFilename;
     if (!app::show_file_selector(
-          "Save JSON Data", m_dataFilename, "json",
+          "Save JSON Data", m_dataFilename, exts,
           FileSelectorType::Save, newFilename))
       return;
 
@@ -586,9 +599,7 @@ private:
 };
 
 ExportSpriteSheetCommand::ExportSpriteSheetCommand()
-  : Command("ExportSpriteSheet",
-            "Export Sprite Sheet",
-            CmdRecordableFlag)
+  : Command(CommandId::ExportSpriteSheet(), CmdRecordableFlag)
   , m_useUI(true)
   , m_askOverwrite(true)
 {
@@ -639,6 +650,7 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
     docPref.spriteSheet.borderPadding(window.borderPaddingValue());
     docPref.spriteSheet.shapePadding(window.shapePaddingValue());
     docPref.spriteSheet.innerPadding(window.innerPaddingValue());
+    docPref.spriteSheet.trim(window.trimValue());
     docPref.spriteSheet.openGenerated(window.openGeneratedValue());
     docPref.spriteSheet.layer(window.layerValue());
     docPref.spriteSheet.frameTag(window.frameTagValue());
@@ -676,9 +688,10 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
   borderPadding = MID(0, borderPadding, 100);
   shapePadding = MID(0, shapePadding, 100);
   innerPadding = MID(0, innerPadding, 100);
-  bool listLayers = docPref.spriteSheet.listLayers();
-  bool listFrameTags = docPref.spriteSheet.listFrameTags();
-  bool listSlices = docPref.spriteSheet.listSlices();
+  const bool trimCels = docPref.spriteSheet.trim();
+  const bool listLayers = docPref.spriteSheet.listLayers();
+  const bool listFrameTags = docPref.spriteSheet.listFrameTags();
+  const bool listSlices = docPref.spriteSheet.listSlices();
 
   if (context->isUIAvailable() && askOverwrite) {
     if (!ask_overwrite(true, filename,
@@ -756,6 +769,7 @@ void ExportSpriteSheetCommand::onExecute(Context* context)
   exporter.setBorderPadding(borderPadding);
   exporter.setShapePadding(shapePadding);
   exporter.setInnerPadding(innerPadding);
+  exporter.setTrimCels(trimCels);
   if (listLayers) exporter.setListLayers(true);
   if (listFrameTags) exporter.setListFrameTags(true);
   if (listSlices) exporter.setListSlices(true);

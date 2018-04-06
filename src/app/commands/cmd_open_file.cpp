@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -75,9 +75,7 @@ private:
 };
 
 OpenFileCommand::OpenFileCommand()
-  : Command("OpenFile",
-            "Open Sprite",
-            CmdRecordableFlag)
+  : Command(CommandId::OpenFile(), CmdRecordableFlag)
   , m_repeatCheckbox(false)
   , m_oneFrame(false)
   , m_seqDecision(SequenceDecision::Ask)
@@ -106,11 +104,11 @@ void OpenFileCommand::onExecute(Context* context)
 
   m_usedFiles.clear();
 
-  FileSelectorFiles filenames;
+  base::paths filenames;
 
   // interactive
   if (context->isUIAvailable() && m_filename.empty()) {
-    std::string exts = get_readable_extensions();
+    base::paths exts = get_readable_extensions();
 
     // Add backslash as show_file_selector() expected a filename as
     // initial path (and the file part is removed from the path).
@@ -205,7 +203,7 @@ void OpenFileCommand::onExecute(Context* context)
     // so we can remove it from the recent-file list
     if (unrecent) {
       if (context->isUIAvailable())
-        App::instance()->recentFiles()->removeRecentFile(m_filename.c_str());
+        App::instance()->recentFiles()->removeRecentFile(m_filename);
     }
   }
 }

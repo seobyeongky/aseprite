@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2016  David Capello
+// Copyright (C) 2016-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -11,6 +11,7 @@
 #include "app/ui/layer_frame_comboboxes.h"
 
 #include "app/restore_visible_layers.h"
+#include "doc/anidir.h"
 #include "doc/frame_tag.h"
 #include "doc/layer.h"
 #include "doc/selected_frames.h"
@@ -58,10 +59,10 @@ FrameListItem::FrameListItem(doc::FrameTag* tag)
 void fill_layers_combobox(const doc::Sprite* sprite, ui::ComboBox* layers, const std::string& defLayer)
 {
   int i = layers->addItem("Visible layers");
-  layers->getItem(i)->setValue(kAllLayers);
+  dynamic_cast<ui::ListItem*>(layers->getItem(i))->setValue(kAllLayers);
 
   i = layers->addItem("Selected layers");
-  layers->getItem(i)->setValue(kSelectedLayers);
+  dynamic_cast<ui::ListItem*>(layers->getItem(i))->setValue(kSelectedLayers);
   if (defLayer == kSelectedLayers)
     layers->setSelectedItemIndex(i);
 
@@ -77,18 +78,35 @@ void fill_layers_combobox(const doc::Sprite* sprite, ui::ComboBox* layers, const
 void fill_frames_combobox(const doc::Sprite* sprite, ui::ComboBox* frames, const std::string& defFrame)
 {
   int i = frames->addItem("All frames");
-  frames->getItem(i)->setValue(kAllFrames);
+  dynamic_cast<ui::ListItem*>(frames->getItem(i))->setValue(kAllFrames);
 
   i = frames->addItem("Selected frames");
-  frames->getItem(i)->setValue(kSelectedFrames);
+  dynamic_cast<ui::ListItem*>(frames->getItem(i))->setValue(kSelectedFrames);
   if (defFrame == kSelectedFrames)
     frames->setSelectedItemIndex(i);
 
   for (auto tag : sprite->frameTags()) {
+    // Don't allow to select empty frame tags
+    if (tag->name().empty())
+      continue;
+
     i = frames->addItem(new FrameListItem(tag));
     if (defFrame == tag->name())
       frames->setSelectedItemIndex(i);
   }
+}
+
+void fill_anidir_combobox(ui::ComboBox* anidir, doc::AniDir defAnidir)
+{
+  static_assert(
+    int(doc::AniDir::FORWARD) == 0 &&
+    int(doc::AniDir::REVERSE) == 1 &&
+    int(doc::AniDir::PING_PONG) == 2, "doc::AniDir has changed");
+
+  anidir->addItem("Forward");
+  anidir->addItem("Reverse");
+  anidir->addItem("Ping-pong");
+  anidir->setSelectedItemIndex(int(defAnidir));
 }
 
 void calculate_visible_layers(doc::Site& site,

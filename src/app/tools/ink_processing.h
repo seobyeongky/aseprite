@@ -5,6 +5,8 @@
 // the End-User License Agreement for Aseprite.
 
 #include "app/modules/palettes.h"
+#include "app/util/wrap_point.h"
+#include "app/util/wrap_value.h"
 #include "base/unique_ptr.h"
 #include "doc/blend_funcs.h"
 #include "doc/image_impl.h"
@@ -34,14 +36,15 @@ namespace {
 class BaseInkProcessing {
 public:
   virtual ~BaseInkProcessing() { }
-  virtual void hline(int x1, int y, int x2, ToolLoop* loop) = 0;
-  virtual void updateInk(ToolLoop* loop, Strokes& strokes) { }
+  virtual void processScanline(int x1, int y, int x2, ToolLoop* loop) = 0;
+  virtual void prepareForStrokes(ToolLoop* loop, Strokes& strokes) { }
+  virtual void prepareForPointShape(ToolLoop* loop, bool firstPoint, int x, int y) { }
 };
 
 template<typename Derived>
 class InkProcessing : public BaseInkProcessing {
 public:
-  void hline(int x1, int y, int x2, ToolLoop* loop) override {
+  void processScanline(int x1, int y, int x2, ToolLoop* loop) override {
     int x;
 
     // Use mask
@@ -637,29 +640,17 @@ public:
 
 private:
   void pickColorFromArea(int x, int y) {
-    int u = x + (rand() % 3)-1 - m_speed.x;
-    int v = y + (rand() % 3)-1 - m_speed.y;
+    gfx::Point pt(x + (rand() % 3)-1 - m_speed.x,
+                  y + (rand() % 3)-1 - m_speed.y);
 
-    if (int(m_tiledMode) & int(TiledMode::X_AXIS)) {
-      if (u < 0)
-        u = m_srcImageWidth - (-(u+1) % m_srcImageWidth) - 1;
-      else if (u >= m_srcImageWidth)
-        u %= m_srcImageWidth;
-    }
-    else {
-      u = MID(0, u, m_srcImageWidth-1);
-    }
+    pt = wrap_point(m_tiledMode,
+                    gfx::Size(m_srcImageWidth,
+                              m_srcImageHeight), pt);
 
-    if (int(m_tiledMode) & int(TiledMode::Y_AXIS)) {
-      if (v < 0)
-        v = m_srcImageHeight - (-(v+1) % m_srcImageHeight) - 1;
-      else if (v >= m_srcImageHeight)
-        v %= m_srcImageHeight;
-    }
-    else {
-      v = MID(0, v, m_srcImageHeight-1);
-    }
-    m_color = get_pixel(m_srcImage, u, v);
+    pt.x = MID(0, pt.x, m_srcImageWidth-1);
+    pt.y = MID(0, pt.y, m_srcImageHeight-1);
+
+    m_color = get_pixel(m_srcImage, pt.x, pt.y);
   }
 
   const Palette* m_palette;
@@ -877,7 +868,9 @@ static ImageBufferPtr tmpGradientBuffer; // TODO non-thread safe
 
 class GradientRenderer {
 public:
-  GradientRenderer(ToolLoop* loop) {
+  GradientRenderer(ToolLoop* loop)
+    : m_tiledMode(loop->getTiledMode())
+  {
     if (!tmpGradientBuffer)
       tmpGradientBuffer.reset(new ImageBuffer(1));
 
@@ -897,17 +890,32 @@ public:
       return;
     }
 
+    const gfx::Point u = strokes[0].firstPoint();
+    const gfx::Point v = strokes[0].lastPoint();
+
+    // The image position for the gradient depends on the first user
+    // click. The gradient depends on the first clicked tile.
+    gfx::Point imgPos(0, 0);
+    if (int(m_tiledMode) & int(TiledMode::X_AXIS)) {
+      const int w = loop->sprite()->width();
+      imgPos.x = u.x / w;
+      imgPos.x *= w;
+    }
+    if (int(m_tiledMode) & int(TiledMode::Y_AXIS)) {
+      const int h = loop->sprite()->height();
+      imgPos.y = u.y / h;
+      imgPos.y *= h;
+    }
+
     render::render_rgba_linear_gradient(
-      m_tmpImage.get(),
-      strokes[0].firstPoint(),
-      strokes[0].lastPoint(),
-      c0, c1,
+      m_tmpImage.get(), imgPos, u, v, c0, c1,
       loop->getDitheringMatrix());
   }
 
 protected:
   ImageRef m_tmpImage;
   RgbTraits::address_t m_tmpAddress;
+  TiledMode m_tiledMode;
 };
 
 template<typename ImageTraits>
@@ -926,12 +934,12 @@ public:
   {
   }
 
-  void hline(int x1, int y, int x2, ToolLoop* loop) override {
+  void processScanline(int x1, int y, int x2, ToolLoop* loop) override {
     m_tmpAddress = (RgbTraits::address_t)m_tmpImage->getPixelAddress(x1, y);
-    base::hline(x1, y, x2, loop);
+    base::processScanline(x1, y, x2, loop);
   }
 
-  void updateInk(ToolLoop* loop, Strokes& strokes) override {
+  void prepareForStrokes(ToolLoop* loop, Strokes& strokes) override {
     // Do nothing
   }
 
@@ -948,7 +956,7 @@ private:
 };
 
 template<>
-void GradientInkProcessing<RgbTraits>::updateInk(ToolLoop* loop, Strokes& strokes)
+void GradientInkProcessing<RgbTraits>::prepareForStrokes(ToolLoop* loop, Strokes& strokes)
 {
   color_t c0 = loop->getPrimaryColor();
   color_t c1 = loop->getSecondaryColor();
@@ -966,7 +974,7 @@ void GradientInkProcessing<RgbTraits>::processPixel(int x, int y)
 }
 
 template<>
-void GradientInkProcessing<GrayscaleTraits>::updateInk(ToolLoop* loop, Strokes& strokes)
+void GradientInkProcessing<GrayscaleTraits>::prepareForStrokes(ToolLoop* loop, Strokes& strokes)
 {
   color_t c0 = loop->getPrimaryColor();
   color_t c1 = loop->getSecondaryColor();
@@ -994,7 +1002,7 @@ void GradientInkProcessing<GrayscaleTraits>::processPixel(int x, int y)
 }
 
 template<>
-void GradientInkProcessing<IndexedTraits>::updateInk(ToolLoop* loop, Strokes& strokes)
+void GradientInkProcessing<IndexedTraits>::prepareForStrokes(ToolLoop* loop, Strokes& strokes)
 {
   color_t c0 = m_palette->getEntry(loop->getPrimaryColor());
   color_t c1 = m_palette->getEntry(loop->getSecondaryColor());
@@ -1092,6 +1100,14 @@ public:
     m_height = m_brush->bounds().h;
     m_u = (m_brush->patternOrigin().x - loop->getCelOrigin().x) % m_width;
     m_v = (m_brush->patternOrigin().y - loop->getCelOrigin().y) % m_height;
+  }
+
+  void prepareForPointShape(ToolLoop* loop, bool firstPoint, int x, int y) override {
+    if ((m_brush->pattern() == BrushPattern::ALIGNED_TO_DST && firstPoint) ||
+        (m_brush->pattern() == BrushPattern::PAINT_BRUSH)) {
+      m_u = (m_brush->patternOrigin().x - loop->getCelOrigin().x) % m_width;
+      m_v = (m_brush->patternOrigin().y - loop->getCelOrigin().y) % m_height;
+    }
   }
 
   void processPixel(int x, int y) {

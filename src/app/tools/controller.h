@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -46,7 +46,7 @@ namespace app {
 
       // The input and output strokes are relative to sprite coordinates.
       virtual void getStrokeToInterwine(const Stroke& input, Stroke& output) = 0;
-      virtual void getStatusBarText(const Stroke& stroke, std::string& text) = 0;
+      virtual void getStatusBarText(ToolLoop* loop, const Stroke& stroke, std::string& text) = 0;
 
       // Last point used by this controller, useful to save the last
       // point of a freehand tool.
@@ -58,6 +58,10 @@ namespace app {
       // and then a TracePolicy::Accumulate for freehand (Pencil tool).
       virtual bool handleTracePolicy() const { return false; }
       virtual TracePolicy getTracePolicy() const { return TracePolicy::Accumulate; }
+
+      // Returns the angle for a shape-like intertwiner (rectangles,
+      // ellipses, etc.).
+      virtual double getShapeAngle() const { return 0.0; }
     };
 
   } // namespace tools

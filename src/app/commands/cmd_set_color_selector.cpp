@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2016  David Capello
+// Copyright (C) 2016-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -11,7 +11,9 @@
 #include "app/app.h"
 #include "app/commands/command.h"
 #include "app/commands/params.h"
+#include "app/i18n/strings.h"
 #include "app/ui/color_bar.h"
+#include "fmt/format.h"
 
 namespace app {
 
@@ -21,6 +23,7 @@ public:
   Command* clone() const override { return new SetColorSelectorCommand(*this); }
 
 protected:
+  bool onNeedsParams() const override { return true; }
   void onLoadParams(const Params& params) override;
   bool onChecked(Context* context) override;
   void onExecute(Context* context) override;
@@ -31,9 +34,7 @@ private:
 };
 
 SetColorSelectorCommand::SetColorSelectorCommand()
-  : Command("SetColorSelector",
-            "Set Color Selector",
-            CmdUIOnlyFlag)
+  : Command(CommandId::SetColorSelector(), CmdUIOnlyFlag)
   , m_type(ColorBar::ColorSelector::SPECTRUM)
 {
 }
@@ -55,6 +56,9 @@ void SetColorSelectorCommand::onLoadParams(const Params& params)
   else if (type == "ryb-wheel") {
     m_type = ColorBar::ColorSelector::RYB_WHEEL;
   }
+  else if (type == "normal-map-wheel") {
+    m_type = ColorBar::ColorSelector::NORMAL_MAP_WHEEL;
+  }
 }
 
 bool SetColorSelectorCommand::onChecked(Context* context)
@@ -69,27 +73,25 @@ void SetColorSelectorCommand::onExecute(Context* context)
 
 std::string SetColorSelectorCommand::onGetFriendlyName() const
 {
-  std::string result = "Set Color Selector: ";
-
+  std::string type;
   switch (m_type) {
     case ColorBar::ColorSelector::SPECTRUM:
-      result += "Color Spectrum";
+      type = Strings::commands_SetColorSelector_Spectrum();
       break;
     case ColorBar::ColorSelector::TINT_SHADE_TONE:
-      result += "Color Tint/Shade/Tone";
+      type = Strings::commands_SetColorSelector_TintShadeTone();
       break;
     case ColorBar::ColorSelector::RGB_WHEEL:
-      result += "RGB Color Wheel";
+      type = Strings::commands_SetColorSelector_RGBWheel();
       break;
     case ColorBar::ColorSelector::RYB_WHEEL:
-      result += "RYB Color Wheel";
+      type = Strings::commands_SetColorSelector_RYBWheel();
       break;
-    default:
-      result += "Unknown";
+    case ColorBar::ColorSelector::NORMAL_MAP_WHEEL:
+      type = Strings::commands_SetColorSelector_NormalMapWheel();
       break;
   }
-
-  return result;
+  return fmt::format(getBaseFriendlyName() + ": {0}", type);
 }
 
 Command* CommandFactory::createSetColorSelectorCommand()

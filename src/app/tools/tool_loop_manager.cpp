@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -18,6 +18,7 @@
 #include "app/tools/point_shape.h"
 #include "app/tools/symmetry.h"
 #include "app/tools/tool_loop.h"
+#include "doc/brush.h"
 #include "doc/image.h"
 #include "doc/primitives.h"
 #include "doc/sprite.h"
@@ -92,7 +93,7 @@ void ToolLoopManager::pressButton(const Pointer& pointer)
   m_toolLoop->getController()->pressButton(m_stroke, spritePoint);
 
   std::string statusText;
-  m_toolLoop->getController()->getStatusBarText(m_stroke, statusText);
+  m_toolLoop->getController()->getStatusBarText(m_toolLoop, m_stroke, statusText);
   m_toolLoop->updateStatusBar(statusText.c_str());
 
   doLoopStep(false);
@@ -138,7 +139,7 @@ void ToolLoopManager::movement(const Pointer& pointer)
   m_toolLoop->getController()->movement(m_toolLoop, m_stroke, spritePoint);
 
   std::string statusText;
-  m_toolLoop->getController()->getStatusBarText(m_stroke, statusText);
+  m_toolLoop->getController()->getStatusBarText(m_toolLoop, m_stroke, statusText);
   m_toolLoop->updateStatusBar(statusText.c_str());
 
   doLoopStep(false);
@@ -174,8 +175,7 @@ void ToolLoopManager::doLoopStep(bool last_step)
     m_toolLoop->validateSrcImage(m_dirtyArea);
   }
 
-  if (m_toolLoop->getInk()->dependsOnStroke())
-    m_toolLoop->getInk()->updateInk(m_toolLoop, strokes);
+  m_toolLoop->getInk()->prepareForStrokes(m_toolLoop, strokes);
 
   // Invalidate destionation image areas.
   if (m_toolLoop->getTracePolicy() == TracePolicy::Last) {
@@ -218,6 +218,7 @@ void ToolLoopManager::snapToGrid(Point& point)
 
   point = snap_to_grid(m_toolLoop->getGridBounds(), point,
                        PreferSnapTo::ClosestGridVertex);
+  point += m_toolLoop->getBrush()->center();
 }
 
 // Strokes are relative to sprite origin.
@@ -226,13 +227,15 @@ void ToolLoopManager::calculateDirtyArea(const Strokes& strokes)
   // Save the current dirty area if it's needed
   Region prevDirtyArea;
   if (m_toolLoop->getTracePolicy() == TracePolicy::Last)
-    prevDirtyArea = m_dirtyArea;
+    prevDirtyArea = m_nextDirtyArea;
 
   // Start with a fresh dirty area
   m_dirtyArea.clear();
 
   for (auto& stroke : strokes) {
-    gfx::Rect strokeBounds = stroke.bounds();
+    gfx::Rect strokeBounds =
+      m_toolLoop->getIntertwine()->getStrokeBounds(m_toolLoop, stroke);
+
     if (strokeBounds.isEmpty())
       continue;
 
@@ -255,8 +258,10 @@ void ToolLoopManager::calculateDirtyArea(const Strokes& strokes)
   // Merge new dirty area with the previous one (for tools like line
   // or rectangle it's needed to redraw the previous position and
   // the new one)
-  if (m_toolLoop->getTracePolicy() == TracePolicy::Last)
+  if (m_toolLoop->getTracePolicy() == TracePolicy::Last) {
+    m_nextDirtyArea = m_dirtyArea;
     m_dirtyArea.createUnion(m_dirtyArea, prevDirtyArea);
+  }
 
   // Apply tiled mode
   TiledMode tiledMode = m_toolLoop->getTiledMode();

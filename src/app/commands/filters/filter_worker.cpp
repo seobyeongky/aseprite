@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2015  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -11,10 +11,12 @@
 #include "app/app.h"
 #include "app/commands/filters/filter_manager_impl.h"
 #include "app/console.h"
+#include "app/i18n/strings.h"
 #include "app/ini_file.h"
 #include "app/modules/editors.h"
 #include "app/modules/gui.h"
 #include "app/ui/editor/editor.h"
+#include "app/ui/status_bar.h"
 #include "base/mutex.h"
 #include "base/scoped_lock.h"
 #include "base/thread.h"
@@ -77,8 +79,7 @@ FilterWorker::FilterWorker(FilterManagerImpl* filterMgr)
   m_cancelled = false;
   m_abort = false;
 
-  m_alertWindow = ui::Alert::create(PACKAGE
-    "<<Applying effect...||&Cancel");
+  m_alertWindow = ui::Alert::create(Strings::alerts_applying_filter());
   m_alertWindow->addProgress();
 
   m_timer.Tick.connect(&FilterWorker::onMonitoringTick, this);
@@ -104,7 +105,9 @@ void FilterWorker::run()
 
   {
     scoped_lock lock(m_mutex);
-    if (!m_done)
+    if (m_done && m_filterMgr->isTransaction())
+      m_filterMgr->commitTransaction();
+    else
       m_cancelled = true;
   }
 
@@ -114,6 +117,10 @@ void FilterWorker::run()
   if (!m_error.empty()) {
     Console console;
     console.printf("A problem has occurred.\n\nDetails:\n%s", m_error.c_str());
+  }
+  else if (m_cancelled && !m_filterMgr->isTransaction()) {
+    StatusBar::instance()
+      ->showTip(2500, "No unlocked layers to apply filter");
   }
 }
 

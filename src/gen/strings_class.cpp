@@ -1,5 +1,5 @@
 // Aseprite Code Generator
-// Copyright (c) 2016 David Capello
+// Copyright (c) 2016-2017 David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -28,11 +28,9 @@ void gen_strings_class(const std::string& inputFn)
     << "// Don't modify, generated file from " << inputFn << "\n"
     << "\n";
 
-  std::string fnUpper = base::string_to_upper(base::get_file_title(inputFn));
-
   std::cout
-    << "#ifndef GENERATED_" << fnUpper << "_H_INCLUDED\n"
-    << "#define GENERATED_" << fnUpper << "_H_INCLUDED\n"
+    << "#ifndef GENERATED_STRINGS_INI_H_INCLUDED\n"
+    << "#define GENERATED_STRINGS_INI_H_INCLUDED\n"
     << "#pragma once\n"
     << "\n"
     << "namespace app {\n"
@@ -54,10 +52,50 @@ void gen_strings_class(const std::string& inputFn)
     for (auto key : keys) {
       textId.append(key);
 
-      std::cout << "    const std::string& " << to_cpp(textId) << "() const { return static_cast<T*>(this)->translate(\"" << textId << "\"); }\n";
+      std::cout << "    static const std::string& " << to_cpp(textId) << "() { return T::instance()->translate(\"" << textId << "\"); }\n";
 
       textId.erase(section.size()+1);
     }
+  }
+
+  std::cout
+    << "  };\n"
+    << "\n"
+    << "} // namespace gen\n"
+    << "} // namespace app\n"
+    << "\n"
+    << "#endif\n";
+}
+
+void gen_command_ids(const std::string& inputFn)
+{
+  cfg::CfgFile cfg;
+  cfg.load(inputFn);
+
+  std::cout
+    << "// Don't modify, generated file from " << inputFn << "\n"
+    << "\n";
+
+  std::cout
+    << "#ifndef GENERATED_COMMAND_IDS_H_INCLUDED\n"
+    << "#define GENERATED_COMMAND_IDS_H_INCLUDED\n"
+    << "#pragma once\n"
+    << "\n"
+    << "namespace app {\n"
+    << "namespace gen {\n"
+    << "\n"
+    << "  class CommandId {\n"
+    << "  public:\n";
+
+  std::vector<std::string> keys;
+  cfg.getAllKeys("commands", keys);
+  for (auto key : keys) {
+    if (key.find('_') != std::string::npos)
+      continue;
+
+    std::cout << "    static const char* "
+              << key << "() { return \""
+              << key << "\"; }\n";
   }
 
   std::cout

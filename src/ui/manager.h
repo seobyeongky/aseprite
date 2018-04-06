@@ -28,9 +28,8 @@ namespace ui {
 
   class Manager : public Widget {
   public:
-    static Manager* getDefault() {
-      return m_defaultManager;
-    }
+    static Manager* getDefault() { return m_defaultManager; }
+    static bool widgetAssociatedToManager(Widget* widget);
 
     Manager();
     ~Manager();
@@ -113,6 +112,7 @@ namespace ui {
     void onResize(ResizeEvent& ev) override;
     void onSizeHint(SizeHintEvent& ev) override;
     void onBroadcastMouseMessage(WidgetsList& targets) override;
+    void onInitTheme(InitThemeEvent& ev) override;
     virtual LayoutIO* onGetLayoutIO();
     virtual void onNewDisplayConfiguration();
 

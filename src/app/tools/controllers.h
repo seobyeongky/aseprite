@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -78,17 +78,18 @@ public:
     }
   }
 
-  void getStatusBarText(const Stroke& stroke, std::string& text) override {
+  void getStatusBarText(ToolLoop* loop, const Stroke& stroke, std::string& text) override {
     ASSERT(!stroke.empty());
     if (stroke.empty())
       return;
 
+    gfx::Point offset = loop->statusBarPositionOffset();
     char buf[1024];
     sprintf(buf, ":start: %3d %3d :end: %3d %3d",
-            stroke.firstPoint().x,
-            stroke.firstPoint().y,
-            stroke.lastPoint().x,
-            stroke.lastPoint().y);
+            stroke.firstPoint().x+offset.x,
+            stroke.firstPoint().y+offset.y,
+            stroke.lastPoint().x+offset.x,
+            stroke.lastPoint().y+offset.y);
     text = buf;
   }
 
@@ -104,7 +105,8 @@ public:
   void pressButton(Stroke& stroke, const Point& point) override {
     MoveOriginCapability::pressButton(stroke, point);
 
-    m_first = point;
+    m_first = m_center = point;
+    m_angle = 0.0;
 
     stroke.addPoint(point);
     stroke.addPoint(point);
@@ -122,6 +124,21 @@ public:
     if (MoveOriginCapability::isMovingOrigin(loop, stroke, point))
       return;
 
+    if (!loop->getIntertwine()->snapByAngle() &&
+        int(loop->getModifiers()) & int(ToolLoopModifiers::kRotateShape)) {
+      if ((int(loop->getModifiers()) & int(ToolLoopModifiers::kFromCenter))) {
+        m_center = m_first;
+      }
+      else {
+        m_center.x = (stroke[0].x+stroke[1].x)/2;
+        m_center.y = (stroke[0].y+stroke[1].y)/2;
+      }
+      m_angle = std::atan2(static_cast<double>(point.y-m_center.y),
+                           static_cast<double>(point.x-m_center.x));
+      return;
+    }
+
+    stroke[0] = m_first;
     stroke[1] = point;
 
     if ((int(loop->getModifiers()) & int(ToolLoopModifiers::kSquareAspect))) {
@@ -167,9 +184,15 @@ public:
       }
     }
 
-    stroke[0] = m_first;
-
-    if ((int(loop->getModifiers()) & int(ToolLoopModifiers::kFromCenter))) {
+    if (hasAngle()) {
+      int rx = stroke[1].x - m_center.x;
+      int ry = stroke[1].y - m_center.y;
+      stroke[0].x = m_center.x - rx;
+      stroke[0].y = m_center.y - ry;
+      stroke[1].x = m_center.x + rx;
+      stroke[1].y = m_center.y + ry;
+    }
+    else if ((int(loop->getModifiers()) & int(ToolLoopModifiers::kFromCenter))) {
       int rx = stroke[1].x - m_first.x;
       int ry = stroke[1].y - m_first.y;
       stroke[0].x = m_first.x - rx;
@@ -180,17 +203,18 @@ public:
 
     // Adjust points for selection like tools (so we can select tiles)
     if (loop->getController()->canSnapToGrid() &&
-        loop->getSnapToGrid() &&
-        loop->getInk()->isSelection()) {
+        loop->getSnapToGrid()) {
+      auto bounds = loop->getBrush()->bounds();
+
       if (stroke[0].x < stroke[1].x)
-        stroke[1].x--;
+        stroke[1].x -= bounds.w;
       else if (stroke[0].x > stroke[1].x)
-        stroke[0].x--;
+        stroke[0].x -= bounds.w;
 
       if (stroke[0].y < stroke[1].y)
-        stroke[1].y--;
+        stroke[1].y -= bounds.h;
       else if (stroke[0].y > stroke[1].y)
-        stroke[0].y--;
+        stroke[0].y -= bounds.h;
     }
   }
 
@@ -203,7 +227,7 @@ public:
     output.addPoint(input[1]);
   }
 
-  void getStatusBarText(const Stroke& stroke, std::string& text) override {
+  void getStatusBarText(ToolLoop* loop, const Stroke& stroke, std::string& text) override {
     ASSERT(stroke.size() >= 2);
     if (stroke.size() < 2)
       return;
@@ -211,23 +235,44 @@ public:
     int w = ABS(stroke[1].x-stroke[0].x)+1;
     int h = ABS(stroke[1].y-stroke[0].y)+1;
 
+    gfx::Point offset = loop->statusBarPositionOffset();
     char buf[1024];
-    sprintf(buf, ":start: %3d %3d :end: %3d %3d :size: %3d %3d :distance: %.1f :angle: %.1f",
-            stroke[0].x, stroke[0].y,
-            stroke[1].x, stroke[1].y,
-            w, h,
-            std::sqrt(w*w + h*h),
-            180.0 * std::atan2(static_cast<double>(stroke[0].y-stroke[1].y),
-                               static_cast<double>(stroke[1].x-stroke[0].x)) / PI);
+    sprintf(buf, ":start: %3d %3d :end: %3d %3d :size: %3d %3d :distance: %.1f",
+            stroke[0].x+offset.x, stroke[0].y+offset.y,
+            stroke[1].x+offset.x, stroke[1].y+offset.y,
+            w, h, std::sqrt(w*w + h*h));
+
+    if (hasAngle() ||
+        loop->getIntertwine()->snapByAngle()) {
+      double angle;
+      if (hasAngle())
+        angle = m_angle;
+      else
+        angle = std::atan2(static_cast<double>(stroke[0].y-stroke[1].y),
+                           static_cast<double>(stroke[1].x-stroke[0].x));
+      sprintf(buf+strlen(buf), " :angle: %.1f", 180.0 * angle / PI);
+    }
+
     text = buf;
   }
 
+  double getShapeAngle() const override {
+    return m_angle;
+  }
+
 private:
+  bool hasAngle() const {
+    return (ABS(m_angle) > 0.001);
+  }
+
   void onMoveOrigin(const Point& delta) override {
     m_first += delta;
+    m_center += delta;
   }
 
   Point m_first;
+  Point m_center;
+  double m_angle;
 };
 
 // Controls clicks for tools like polygon
@@ -268,17 +313,18 @@ public:
     output = input;
   }
 
-  void getStatusBarText(const Stroke& stroke, std::string& text) override {
+  void getStatusBarText(ToolLoop* loop, const Stroke& stroke, std::string& text) override {
     ASSERT(!stroke.empty());
     if (stroke.empty())
       return;
 
+    gfx::Point offset = loop->statusBarPositionOffset();
     char buf[1024];
     sprintf(buf, ":start: %3d %3d :end: %3d %3d",
-            stroke.firstPoint().x,
-            stroke.firstPoint().y,
-            stroke.lastPoint().x,
-            stroke.lastPoint().y);
+            stroke.firstPoint().x+offset.x,
+            stroke.firstPoint().y+offset.y,
+            stroke.lastPoint().x+offset.x,
+            stroke.lastPoint().y+offset.y);
     text = buf;
   }
 
@@ -307,13 +353,16 @@ public:
     output = input;
   }
 
-  void getStatusBarText(const Stroke& stroke, std::string& text) override {
+  void getStatusBarText(ToolLoop* loop, const Stroke& stroke, std::string& text) override {
     ASSERT(!stroke.empty());
     if (stroke.empty())
       return;
 
+    gfx::Point offset = loop->statusBarPositionOffset();
     char buf[1024];
-    sprintf(buf, ":pos: %3d %3d", stroke[0].x, stroke[0].y);
+    sprintf(buf, ":pos: %3d %3d",
+            stroke[0].x+offset.x,
+            stroke[0].y+offset.y);
     text = buf;
   }
 
@@ -362,17 +411,18 @@ public:
     output = input;
   }
 
-  void getStatusBarText(const Stroke& stroke, std::string& text) override {
+  void getStatusBarText(ToolLoop* loop, const Stroke& stroke, std::string& text) override {
     ASSERT(stroke.size() >= 4);
     if (stroke.size() < 4)
       return;
 
+    gfx::Point offset = loop->statusBarPositionOffset();
     char buf[1024];
     sprintf(buf, ":start: %3d %3d :end: %3d %3d (%3d %3d - %3d %3d)",
-            stroke[0].x, stroke[0].y,
-            stroke[3].x, stroke[3].y,
-            stroke[1].x, stroke[1].y,
-            stroke[2].x, stroke[2].y);
+            stroke[0].x+offset.x, stroke[0].y+offset.y,
+            stroke[3].x+offset.x, stroke[3].y+offset.y,
+            stroke[1].x+offset.x, stroke[1].y+offset.y,
+            stroke[2].x+offset.x, stroke[2].y+offset.y);
 
     text = buf;
   }
@@ -421,8 +471,8 @@ public:
     m_controller->getStrokeToInterwine(input, output);
   }
 
-  void getStatusBarText(const Stroke& stroke, std::string& text) override {
-    m_controller->getStatusBarText(stroke, text);
+  void getStatusBarText(ToolLoop* loop, const Stroke& stroke, std::string& text) override {
+    m_controller->getStatusBarText(loop, stroke, text);
   }
 
   bool handleTracePolicy() const override {

@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -24,7 +24,7 @@
 #include "doc/layer.h"
 #include "doc/palette.h"
 #include "doc/sprite.h"
-#include "docio/detect_format.h"
+#include "dio/detect_format.h"
 
 #include <cstring>
 
@@ -32,45 +32,49 @@ namespace app {
 
 using namespace doc;
 
-std::string get_readable_palette_extensions()
+static const char* palExts[] = { "col", "gpl", "hex", "pal" };
+
+base::paths get_readable_palette_extensions()
 {
-  std::string buf = get_readable_extensions();
-  buf += ",col,gpl,hex,pal";
-  return buf;
+  base::paths paths = get_readable_extensions();
+  for (const char* s : palExts)
+    paths.push_back(s);
+  return paths;
 }
 
-std::string get_writable_palette_extensions()
+base::paths get_writable_palette_extensions()
 {
-  std::string buf = get_writable_extensions();
-  buf += ",col,gpl,hex,pal";
-  return buf;
+  base::paths paths = get_writable_extensions();
+  for (const char* s : palExts)
+    paths.push_back(s);
+  return paths;
 }
 
 Palette* load_palette(const char* filename)
 {
-  docio::FileFormat docioFormat = docio::detect_format(filename);
+  dio::FileFormat dioFormat = dio::detect_format(filename);
   Palette* pal = nullptr;
 
-  switch (docioFormat) {
+  switch (dioFormat) {
 
-    case docio::FileFormat::COL_PALETTE:
+    case dio::FileFormat::COL_PALETTE:
       pal = doc::file::load_col_file(filename);
       break;
 
-    case docio::FileFormat::GPL_PALETTE:
+    case dio::FileFormat::GPL_PALETTE:
       pal = doc::file::load_gpl_file(filename);
       break;
 
-    case docio::FileFormat::HEX_PALETTE:
+    case dio::FileFormat::HEX_PALETTE:
       pal = doc::file::load_hex_file(filename);
       break;
 
-    case docio::FileFormat::PAL_PALETTE:
+    case dio::FileFormat::PAL_PALETTE:
       pal = doc::file::load_pal_file(filename);
       break;
 
     default: {
-      FileFormat* ff = FileFormatsManager::instance()->getFileFormat(docioFormat);
+      FileFormat* ff = FileFormatsManager::instance()->getFileFormat(dioFormat);
       if (!ff || !ff->support(FILE_SUPPORT_LOAD))
         break;
 
@@ -106,29 +110,29 @@ Palette* load_palette(const char* filename)
 
 bool save_palette(const char* filename, const Palette* pal, int columns)
 {
-  docio::FileFormat docioFormat = docio::detect_format_by_file_extension(filename);
+  dio::FileFormat dioFormat = dio::detect_format_by_file_extension(filename);
   bool success = false;
 
-  switch (docioFormat) {
+  switch (dioFormat) {
 
-    case docio::FileFormat::COL_PALETTE:
+    case dio::FileFormat::COL_PALETTE:
       success = doc::file::save_col_file(pal, filename);
       break;
 
-    case docio::FileFormat::GPL_PALETTE:
+    case dio::FileFormat::GPL_PALETTE:
       success = doc::file::save_gpl_file(pal, filename);
       break;
 
-    case docio::FileFormat::HEX_PALETTE:
+    case dio::FileFormat::HEX_PALETTE:
       success = doc::file::save_hex_file(pal, filename);
       break;
 
-    case docio::FileFormat::PAL_PALETTE:
+    case dio::FileFormat::PAL_PALETTE:
       success = doc::file::save_pal_file(pal, filename);
       break;
 
     default: {
-      FileFormat* ff = FileFormatsManager::instance()->getFileFormat(docioFormat);
+      FileFormat* ff = FileFormatsManager::instance()->getFileFormat(dioFormat);
       if (!ff || !ff->support(FILE_SUPPORT_SAVE))
         break;
 

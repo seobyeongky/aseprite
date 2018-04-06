@@ -1,5 +1,5 @@
 // SHE library
-// Copyright (C) 2012-2017  David Capello
+// Copyright (C) 2012-2018  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -16,10 +16,30 @@
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkColorFilter.h"
-#include "SkColorPriv.h"
 #include "SkImageInfo.h"
 #include "SkRegion.h"
 #include "SkSurface.h"
+
+#ifndef SK_BGRA_B32_SHIFT
+  #ifdef SK_CPU_BENDIAN
+    #define SK_BGRA_B32_SHIFT   24
+    #define SK_BGRA_G32_SHIFT   16
+    #define SK_BGRA_R32_SHIFT   8
+    #define SK_BGRA_A32_SHIFT   0
+  #else
+    #define SK_BGRA_B32_SHIFT   0
+    #define SK_BGRA_G32_SHIFT   8
+    #define SK_BGRA_R32_SHIFT   16
+    #define SK_BGRA_A32_SHIFT   24
+  #endif
+#endif
+
+#ifndef SK_A4444_SHIFT
+  #define SK_R4444_SHIFT    12
+  #define SK_G4444_SHIFT    8
+  #define SK_B4444_SHIFT    4
+  #define SK_A4444_SHIFT    0
+#endif
 
 namespace she {
 
@@ -41,7 +61,6 @@ public:
   SkiaSurface(const sk_sp<SkSurface>& surface)
     : m_surface(surface)
     , m_canvas(nullptr)
-    , m_clip(0, 0, width(), height())
     , m_lock(0)
   {
     ASSERT(m_surface);
@@ -107,19 +126,29 @@ public:
     return false;
   }
 
-  gfx::Rect getClipBounds() override {
-    return m_clip;
+  int getSaveCount() const override {
+    return m_canvas->getSaveCount();
   }
 
-  void setClipBounds(const gfx::Rect& rc) override {
-    m_clip = rc;
-    m_canvas->clipRect(SkRect::Make(to_skia(m_clip)), kReplace_SkClipOp);
+  gfx::Rect getClipBounds() const override {
+    SkIRect rc;
+    if (m_canvas->getDeviceClipBounds(&rc))
+      return gfx::Rect(rc.x(), rc.y(), rc.width(), rc.height());
+    else
+      return gfx::Rect();
   }
 
-  bool intersectClipRect(const gfx::Rect& rc) override {
-    m_clip &= rc;
-    m_canvas->clipRect(SkRect::Make(to_skia(m_clip)), kReplace_SkClipOp);
-    return !m_clip.isEmpty();
+  void saveClip() override {
+    m_canvas->save();
+  }
+
+  void restoreClip() override {
+    m_canvas->restore();
+  }
+
+  bool clipRect(const gfx::Rect& rc) override {
+    m_canvas->clipRect(SkRect::Make(to_skia(rc)));
+    return !m_canvas->isClipEmpty();
   }
 
   void setDrawMode(DrawMode mode, int param,
@@ -138,18 +167,18 @@ public:
         m_paint.setBlendMode(SkBlendMode::kSrcOver);
         {
           SkBitmap bitmap;
-          if (!bitmap.tryAllocPixels(SkImageInfo::MakeN32Premul(8, 8, colorSpace())))
+          if (!bitmap.tryAllocPixels(
+                SkImageInfo::MakeN32(8, 8, kOpaque_SkAlphaType, colorSpace()))) {
             throw base::Exception("Cannot create temporary Skia surface");
+          }
 
           {
-            bitmap.lockPixels();
             SkPMColor A = SkPreMultiplyARGB(gfx::geta(a), gfx::getr(a), gfx::getg(a), gfx::getb(a));
             SkPMColor B = SkPreMultiplyARGB(gfx::geta(b), gfx::getr(b), gfx::getg(b), gfx::getb(b));
             int offset = 7 - (param & 7);
             for (int y=0; y<8; y++)
               for (int x=0; x<8; x++)
                 *bitmap.getAddr32(x, y) = (((x+y+offset)&7) < 4 ? B: A);
-            bitmap.unlockPixels();
           }
 
           sk_sp<SkShader> shader(
@@ -166,14 +195,16 @@ public:
 
   void lock() override {
     ASSERT(m_lock >= 0);
-    if (m_lock++ == 0)
-      m_bitmap.lockPixels();
+    if (m_lock++ == 0) {
+      // m_bitmap is always locked
+    }
   }
 
   void unlock() override {
     ASSERT(m_lock > 0);
-    if (--m_lock == 0)
-      m_bitmap.unlockPixels();
+    if (--m_lock == 0) {
+      // m_bitmap is always locked
+    }
   }
 
   void applyScale(int scaleFactor) override {
@@ -181,9 +212,9 @@ public:
 
     SkBitmap result;
     if (!result.tryAllocPixels(
-          SkImageInfo::Make(width()*scaleFactor, height()*scaleFactor,
-                            m_bitmap.info().colorType(),
-                            m_bitmap.info().alphaType())))
+          m_bitmap.info().makeWH(
+            width()*scaleFactor,
+            height()*scaleFactor)))
       throw base::Exception("Cannot create temporary Skia surface to change scale");
 
     SkPaint paint;
@@ -207,7 +238,10 @@ public:
   }
 
   uint8_t* getData(int x, int y) const override {
-    return (uint8_t*)m_bitmap.getAddr(x, y);
+    if (m_bitmap.isNull())
+      return nullptr;
+    else
+      return (uint8_t*)m_bitmap.getAddr32(x, y);
   }
 
   void getFormat(SurfaceFormatData* formatData) const override {
@@ -256,7 +290,6 @@ public:
         formatData->alphaMask  = (255 << SK_BGRA_A32_SHIFT);
         break;
       default:
-        ASSERT(false);
         formatData->redShift   = 0;
         formatData->greenShift = 0;
         formatData->blueShift  = 0;
@@ -326,12 +359,19 @@ public:
     m_canvas->drawIRect(to_skia(rc), m_paint);
   }
 
-  void blitTo(Surface* dest, int srcx, int srcy, int dstx, int dsty, int width, int height) const override {
-    SkImageInfo info = SkImageInfo::MakeN32Premul(width, height, colorSpace());
-    std::vector<uint32_t> pixels(width * height * 4);
-    m_canvas->readPixels(info, (void*)&pixels[0], 4*width, srcx, srcy);
-    static_cast<SkiaSurface*>(dest)
-      ->m_canvas->writePixels(info, (void*)&pixels[0], 4*width, dstx, dsty);
+  void blitTo(Surface* _dst, int srcx, int srcy, int dstx, int dsty, int width, int height) const override {
+    ASSERT(!m_bitmap.empty());
+
+    auto dst = static_cast<SkiaSurface*>(_dst);
+
+    SkIRect srcRect = SkIRect::MakeXYWH(srcx, srcy, width, height);
+    SkRect dstRect = SkRect::Make(SkIRect::MakeXYWH(dstx, dsty, width, height));
+
+    SkPaint paint;
+    paint.setBlendMode(SkBlendMode::kSrc);
+
+    dst->m_canvas->drawBitmapRect(m_bitmap, srcRect, dstRect, &paint,
+                                  SkCanvas::kStrict_SrcRectConstraint);
   }
 
   void scrollTo(const gfx::Rect& rc, int dx, int dy) override {
@@ -371,6 +411,8 @@ public:
       dst += rowDelta;
       src += rowDelta;
     }
+
+    m_bitmap.notifyPixelsChanged();
   }
 
   void drawSurface(const Surface* src, int dstx, int dsty) override {
@@ -446,13 +488,12 @@ public:
     }
 
     sk_sp<SkColorFilter> colorFilter(
-      SkColorFilter::MakeModeFilter(to_skia(fg), SkXfermode::kSrcIn_Mode));
+      SkColorFilter::MakeModeFilter(to_skia(fg), SkBlendMode::kSrcIn));
     paint.setColorFilter(colorFilter);
 
     m_canvas->drawBitmapRect(
       ((SkiaSurface*)src)->m_bitmap,
-      srcRect, dstRect, &paint,
-      SkCanvas::kStrict_SrcRectConstraint);
+      srcRect, dstRect, &paint);
   }
 
   SkBitmap& bitmap() {
@@ -474,7 +515,6 @@ private:
 
     delete m_canvas;
     m_canvas = new SkCanvas(m_bitmap);
-    m_clip = gfx::Rect(0, 0, width(), height());
   }
 
   static sk_sp<SkColorSpace> colorSpace();
@@ -483,7 +523,6 @@ private:
   sk_sp<SkSurface> m_surface;
   SkCanvas* m_canvas;
   SkPaint m_paint;
-  gfx::Rect m_clip;
   int m_lock;
   static sk_sp<SkColorSpace> m_colorSpace;
 

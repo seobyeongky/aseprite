@@ -1,5 +1,5 @@
 // Aseprite UI Library
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -13,8 +13,9 @@
 #include "base/fs.h"
 #include "ui/listitem.h"
 #include "ui/message.h"
-#include "ui/size_hint_event.h"
 #include "ui/resize_event.h"
+#include "ui/separator.h"
+#include "ui/size_hint_event.h"
 #include "ui/system.h"
 #include "ui/theme.h"
 #include "ui/view.h"
@@ -111,7 +112,8 @@ void ListBox::selectChild(Widget* item, Message* msg)
     bool newState;
 
     if (m_multiselect) {
-      newState = m_states[i];
+      ASSERT(i >= 0 && i < m_states.size());
+      newState = (i >= 0 && i < m_states.size() ? m_states[i]: false);
 
       if (i >= MIN(itemIndex, m_firstSelectedIndex) &&
           i <= MAX(itemIndex, m_firstSelectedIndex)) {
@@ -437,7 +439,11 @@ int ListBox::advanceIndexThroughVisibleItems(
     }
     else {
       Widget* item = getChildByIndex(index);
-      if (item && !item->hasFlags(HIDDEN)) {
+      if (item &&
+          !item->hasFlags(HIDDEN) &&
+          // We can completelly ignore separators from navigation
+          // keys.
+          !dynamic_cast<Separator*>(item)) {
         lastVisibleIndex = index;
         delta -= sgn;
       }

@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2016  David Capello
+// Copyright (C) 2016-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,6 +10,7 @@
 
 #include "app/util/clipboard_native.h"
 
+#include "app/i18n/strings.h"
 #include "base/serialization.h"
 #include "base/unique_ptr.h"
 #include "clip/clip.h"
@@ -43,10 +44,10 @@ namespace {
   void custom_error_handler(clip::ErrorCode code) {
     switch (code) {
       case clip::ErrorCode::CannotLock:
-        ui::Alert::show("Error<<Cannot access to the clipboard.\nMaybe other application is using it.||&OK");
+        ui::Alert::show(Strings::alerts_clipboard_access_locked());
         break;
       case clip::ErrorCode::ImageNotSupported:
-        ui::Alert::show("Error<<The current clipboard image format is not supported.||&OK");
+        ui::Alert::show(Strings::alerts_clipboard_image_format_not_supported());
         break;
     }
   }
@@ -233,9 +234,8 @@ bool get_native_clipboard_bitmap(doc::Image** image,
         for (unsigned long x=0; x<spec.width; ++x, ++it, ++src) {
           const uint32_t c = *((const uint32_t*)src);
 
-          // On Windows, 32bpp images are used for performance only,
-          // the alpha mask is always zero (which means that the image
-          // is only RGB, without alpha information).
+          // The alpha mask can be zero (which means that the image is
+          // just RGB).
           int alpha =
             (spec.alpha_mask ?
              uint8_t((c & spec.alpha_mask) >> spec.alpha_shift): 255);

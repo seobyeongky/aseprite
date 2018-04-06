@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -8,6 +8,7 @@
 #define APP_COMMANDS_FILTERS_FILTER_MANAGER_IMPL_H_INCLUDED
 #pragma once
 
+#include "app/commands/filters/cels_target.h"
 #include "base/exception.h"
 #include "base/unique_ptr.h"
 #include "doc/image_impl.h"
@@ -19,6 +20,7 @@
 #include "gfx/rect.h"
 
 #include <cstring>
+#include <memory>
 
 namespace doc {
   class Cel;
@@ -76,12 +78,15 @@ namespace app {
     doc::PixelFormat pixelFormat() const;
 
     void setTarget(Target target);
+    void setCelsTarget(CelsTarget celsTarget);
 
     void begin();
     void beginForPreview();
     void end();
     bool applyStep();
     void applyToTarget();
+    bool isTransaction() const;
+    void commitTransaction();
 
     app::Document* document();
     doc::Sprite* sprite() { return m_site.sprite(); }
@@ -92,6 +97,8 @@ namespace app {
 
     // Updates the current editor to show the progress of the preview.
     void flush();
+
+    void disablePreview();
 
     // FilterManager implementation
     const void* getSourceAddress() override;
@@ -114,11 +121,15 @@ namespace app {
 
   private:
     void init(doc::Cel* cel);
-    void apply(Transaction& transaction);
-    void applyToCel(Transaction& transaction, doc::Cel* cel);
+    void apply();
+    void applyToCel(doc::Cel* cel);
     bool updateBounds(doc::Mask* mask);
+
+    // Returns true if the palette was changed (true when the filter
+    // modifies the palette).
     bool paletteHasChanged();
     void restoreSpritePalette();
+    void redrawColorPalette();
 
     Context* m_context;
     doc::Site m_site;
@@ -135,7 +146,9 @@ namespace app {
     doc::ImageBits<doc::BitmapTraits>::iterator m_maskIterator;
     Target m_targetOrig;          // Original targets
     Target m_target;              // Filtered targets
+    CelsTarget m_celsTarget;
     base::UniquePtr<doc::Palette> m_oldPalette;
+    std::unique_ptr<Transaction> m_transaction;
 
     // Hooks
     float m_progressBase;

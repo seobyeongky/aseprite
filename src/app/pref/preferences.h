@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -9,6 +9,7 @@
 #pragma once
 
 #include "app/color.h"
+#include "app/commands/filters/cels_target.h"
 #include "app/document_exporter.h"
 #include "app/pref/option.h"
 #include "app/sprite_sheet_type.h"
@@ -53,6 +54,10 @@ namespace app {
 
     void load();
     void save();
+
+    // Returns true if the given option was set by the user or false
+    // if it contains the default value.
+    bool isSet(OptionBase& opt) const;
 
     ToolPreferences& tool(tools::Tool* tool);
     DocumentPreferences& document(const app::Document* doc);

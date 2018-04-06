@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,13 +13,17 @@
 #include "app/console.h"
 #include "app/context.h"
 #include "app/extensions.h"
+#include "app/file/file.h"
 #include "app/file_selector.h"
+#include "app/i18n/strings.h"
 #include "app/ini_file.h"
 #include "app/launcher.h"
 #include "app/pref/preferences.h"
+#include "app/recent_files.h"
 #include "app/resource_finder.h"
 #include "app/send_crash.h"
 #include "app/ui/color_button.h"
+#include "app/ui/separator_in_view.h"
 #include "app/ui/skin/skin_theme.h"
 #include "base/bind.h"
 #include "base/convert_to.h"
@@ -27,6 +31,7 @@
 #include "base/string.h"
 #include "base/version.h"
 #include "doc/image.h"
+#include "fmt/format.h"
 #include "render/render.h"
 #include "she/display.h"
 #include "she/system.h"
@@ -36,10 +41,13 @@
 
 namespace app {
 
+static const char* kSectionGeneralId = "section_general";
 static const char* kSectionBgId = "section_bg";
 static const char* kSectionGridId = "section_grid";
 static const char* kSectionThemeId = "section_theme";
 static const char* kSectionExtensionsId = "section_extensions";
+
+static const char* kInfiniteSymbol = "\xE2\x88\x9E"; // Infinite symbol (UTF-8)
 
 using namespace ui;
 
@@ -129,8 +137,31 @@ public:
     , m_docPref(m_pref.document(context->activeDocument()))
     , m_curPref(&m_docPref)
     , m_curSection(curSection)
+    , m_restoreThisTheme(m_pref.theme.selected())
+    , m_restoreScreenScaling(m_pref.general.screenScale())
+    , m_restoreUIScaling(m_pref.general.uiScale())
   {
     sectionListbox()->Change.connect(base::Bind<void>(&OptionsWindow::onChangeSection, this));
+
+    // Default extension to save files
+    fillExtensionsCombobox(defaultExtension(), m_pref.saveFile.defaultExtension());
+    fillExtensionsCombobox(exportImageDefaultExtension(), m_pref.exportFile.imageDefaultExtension());
+    fillExtensionsCombobox(exportAnimationDefaultExtension(), m_pref.exportFile.animationDefaultExtension());
+    fillExtensionsCombobox(exportSpriteSheetDefaultExtension(), m_pref.spriteSheet.defaultExtension());
+
+    // Number of recent items
+    recentFiles()->setValue(m_pref.general.recentItems());
+    clearRecentFiles()->Click.connect(base::Bind<void>(&OptionsWindow::onClearRecentFiles, this));
+
+    // Alerts
+    fileFormatDoesntSupportAlert()->setSelected(m_pref.saveFile.showFileFormatDoesntSupportAlert());
+    exportAnimationInSequenceAlert()->setSelected(m_pref.saveFile.showExportAnimationInSequenceAlert());
+    overwriteFilesOnExportAlert()->setSelected(m_pref.exportFile.showOverwriteFilesAlert());
+    overwriteFilesOnExportSpriteSheetAlert()->setSelected(m_pref.spriteSheet.showOverwriteFilesAlert());
+    gifOptionsAlert()->setSelected(m_pref.gif.showAlert());
+    jpegOptionsAlert()->setSelected(m_pref.jpeg.showAlert());
+    advancedModeAlert()->setSelected(m_pref.advancedMode.showAlert());
+    resetAlerts()->Click.connect(base::Bind<void>(&OptionsWindow::onResetAlerts, this));
 
     // Cursor
     paintingCursorType()->setSelectedItemIndex(int(m_pref.cursor.paintingCursorType()));
@@ -194,6 +225,12 @@ public:
     if (m_pref.selection.moveEdges())
       moveEdges()->setSelected(true);
 
+    if (m_pref.selection.modifiersDisableHandles())
+      modifiersDisableHandles()->setSelected(true);
+
+    if (m_pref.selection.moveOnAddMode())
+      moveOnAddMode()->setSelected(true);
+
     // If the platform supports native cursors...
     if ((int(she::instance()->capabilities()) &
          int(she::Capabilities::CustomNativeMouseCursor)) != 0) {
@@ -225,6 +262,12 @@ public:
     if (m_pref.editor.autoScroll())
       autoScroll()->setSelected(true);
 
+    if (m_pref.editor.straightLinePreview())
+      straightLinePreview()->setSelected(true);
+
+    if (m_pref.eyedropper.discardBrush())
+      discardBrush()->setSelected(true);
+
     // Scope
     bgScope()->addItem("Background for New Documents");
     gridScope()->addItem("Grid for New Documents");
@@ -238,14 +281,7 @@ public:
       gridScope()->Change.connect(base::Bind<void>(&OptionsWindow::onChangeGridScope, this));
     }
 
-    // Screen/UI Scale
-    screenScale()->setSelectedItemIndex(
-      screenScale()->findItemIndexByValue(
-        base::convert_to<std::string>(m_pref.general.screenScale())));
-
-    uiScale()->setSelectedItemIndex(
-      uiScale()->findItemIndexByValue(
-        base::convert_to<std::string>(m_pref.general.uiScale())));
+    selectScalingItems();
 
     if ((int(she::instance()->capabilities()) &
          int(she::Capabilities::GpuAccelerationSwitch)) == int(she::Capabilities::GpuAccelerationSwitch)) {
@@ -254,6 +290,13 @@ public:
     else {
       gpuAcceleration()->setVisible(false);
     }
+
+    // If the platform does support native menus, we show the option,
+    // in other case, the option doesn't make sense for this platform.
+    if (she::instance()->menus())
+      showMenuBar()->setSelected(m_pref.general.showMenuBar());
+    else
+      showMenuBar()->setVisible(false);
 
     showHome()->setSelected(m_pref.general.showHome());
 
@@ -285,10 +328,13 @@ public:
 #endif
 
     // Checked background size
+    static_assert(int(app::gen::BgType::CHECKED_16x16) == 0, "");
+    static_assert(int(app::gen::BgType::CHECKED_1x1) == 4, "");
     checkedBgSize()->addItem("16x16");
     checkedBgSize()->addItem("8x8");
     checkedBgSize()->addItem("4x4");
     checkedBgSize()->addItem("2x2");
+    checkedBgSize()->addItem("1x1");
 
     // Reset buttons
     resetBg()->Click.connect(base::Bind<void>(&OptionsWindow::onResetBg, this));
@@ -303,12 +349,16 @@ public:
 #endif
 
     // Undo preferences
-    undoSizeLimit()->setTextf("%d", m_pref.undo.sizeLimit());
+    limitUndo()->Click.connect(base::Bind<void>(&OptionsWindow::onLimitUndoCheck, this));
+    limitUndo()->setSelected(m_pref.undo.sizeLimit() != 0);
+    onLimitUndoCheck();
+
     undoGotoModified()->setSelected(m_pref.undo.gotoModified());
     undoAllowNonlinearHistory()->setSelected(m_pref.undo.allowNonlinearHistory());
 
     // Theme buttons
     themeList()->Change.connect(base::Bind<void>(&OptionsWindow::onThemeChange, this));
+    themeList()->DoubleClickItem.connect(base::Bind<void>(&OptionsWindow::onSelectTheme, this));
     selectTheme()->Click.connect(base::Bind<void>(&OptionsWindow::onSelectTheme, this));
     openThemeFolder()->Click.connect(base::Bind<void>(&OptionsWindow::onOpenThemeFolder, this));
 
@@ -320,11 +370,16 @@ public:
     openExtensionFolder()->Click.connect(base::Bind<void>(&OptionsWindow::onOpenExtensionFolder, this));
 
     // Apply button
-    buttonApply()->Click.connect(base::Bind<void>(&OptionsWindow::saveConfig, this));
+    buttonApply()->Click.connect(base::Bind<void>(&OptionsWindow::onApply, this));
 
     onChangeBgScope();
     onChangeGridScope();
     sectionListbox()->selectIndex(m_curSection);
+
+    // Refill languages combobox when extensions are enabled/disabled
+    m_extLanguagesChanges =
+      App::instance()->extensions().LanguagesChange.connect(
+        base::Bind<void>(&OptionsWindow::refillLanguages, this));
 
     // Reload themes when extensions are enabled/disabled
     m_extThemesChanges =
@@ -337,10 +392,23 @@ public:
   }
 
   void saveConfig() {
+    // Update language
+    Strings::instance()->setCurrentLanguage(
+      language()->getItemText(language()->getSelectedItemIndex()));
+
     m_pref.general.autoshowTimeline(autotimeline()->isSelected());
     m_pref.general.rewindOnStop(rewindOnStop()->isSelected());
     m_globPref.timeline.firstFrame(firstFrame()->textInt());
     m_pref.general.showFullPath(showFullPath()->isSelected());
+    m_pref.saveFile.defaultExtension(getExtension(defaultExtension()));
+    m_pref.exportFile.imageDefaultExtension(getExtension(exportImageDefaultExtension()));
+    m_pref.exportFile.animationDefaultExtension(getExtension(exportAnimationDefaultExtension()));
+    m_pref.spriteSheet.defaultExtension(getExtension(exportSpriteSheetDefaultExtension()));
+    {
+      const int limit = recentFiles()->getValue();
+      m_pref.general.recentItems(limit);
+      App::instance()->recentFiles()->setLimit(limit);
+    }
 
     bool expandOnMouseover = expandMenubarOnMouseover()->isSelected();
     m_pref.general.expandMenubarOnMouseover(expandOnMouseover);
@@ -354,13 +422,23 @@ public:
       m_pref.general.dataRecovery(enableDataRecovery()->isSelected());
       m_pref.general.dataRecoveryPeriod(newPeriod);
 
-      warnings += "<<- Automatically save recovery data every";
+      warnings += "<<- " + Strings::alerts_restart_by_preferences_save_recovery_data_period();
     }
+
+    m_pref.saveFile.showFileFormatDoesntSupportAlert(fileFormatDoesntSupportAlert()->isSelected());
+    m_pref.saveFile.showExportAnimationInSequenceAlert(exportAnimationInSequenceAlert()->isSelected());
+    m_pref.exportFile.showOverwriteFilesAlert(overwriteFilesOnExportAlert()->isSelected());
+    m_pref.spriteSheet.showOverwriteFilesAlert(overwriteFilesOnExportSpriteSheetAlert()->isSelected());
+    m_pref.gif.showAlert(gifOptionsAlert()->isSelected());
+    m_pref.jpeg.showAlert(jpegOptionsAlert()->isSelected());
+    m_pref.advancedMode.showAlert(advancedModeAlert()->isSelected());
 
     m_pref.editor.zoomFromCenterWithWheel(zoomFromCenterWithWheel()->isSelected());
     m_pref.editor.zoomFromCenterWithKeys(zoomFromCenterWithKeys()->isSelected());
     m_pref.editor.showScrollbars(showScrollbars()->isSelected());
     m_pref.editor.autoScroll(autoScroll()->isSelected());
+    m_pref.editor.straightLinePreview(straightLinePreview()->isSelected());
+    m_pref.eyedropper.discardBrush(discardBrush()->isSelected());
     m_pref.editor.zoomWithWheel(wheelZoom()->isSelected());
 #if __APPLE__
     m_pref.editor.zoomWithSlide(slideZoom()->isSelected());
@@ -374,6 +452,8 @@ public:
     m_pref.selection.autoOpaque(autoOpaque()->isSelected());
     m_pref.selection.keepSelectionAfterClear(keepSelectionAfterClear()->isSelected());
     m_pref.selection.moveEdges(moveEdges()->isSelected());
+    m_pref.selection.modifiersDisableHandles(modifiersDisableHandles()->isSelected());
+    m_pref.selection.moveOnAddMode(moveOnAddMode()->isSelected());
     m_pref.guides.layerEdgesColor(layerEdgesColor()->getColor());
     m_pref.guides.autoGuidesColor(autoGuidesColor()->getColor());
     m_pref.slices.defaultColor(defaultSliceColor()->getColor());
@@ -396,7 +476,7 @@ public:
 
     int undo_size_limit_value;
     undo_size_limit_value = undoSizeLimit()->textInt();
-    undo_size_limit_value = MID(1, undo_size_limit_value, 9999);
+    undo_size_limit_value = MID(0, undo_size_limit_value, 999999);
 
     m_pref.undo.sizeLimit(undo_size_limit_value);
     m_pref.undo.gotoModified(undoGotoModified()->isSelected());
@@ -420,13 +500,20 @@ public:
     int newUIScale = base::convert_to<int>(uiScale()->getValue());
     if (newUIScale != m_pref.general.uiScale()) {
       m_pref.general.uiScale(newUIScale);
-      warnings += "<<- UI Elements Scale";
+      ui::set_theme(ui::get_theme(),
+                    newUIScale);
+      reset_screen = true;
     }
 
     bool newGpuAccel = gpuAcceleration()->isSelected();
     if (newGpuAccel != m_pref.general.gpuAcceleration()) {
       m_pref.general.gpuAcceleration(newGpuAccel);
       reset_screen = true;
+    }
+
+    if (she::instance()->menus() &&
+        m_pref.general.showMenuBar() != showMenuBar()->isSelected()) {
+      m_pref.general.showMenuBar(showMenuBar()->isSelected());
     }
 
     bool newShowHome = showHome()->isSelected();
@@ -436,21 +523,76 @@ public:
     m_pref.save();
 
     if (!warnings.empty()) {
-      ui::Alert::show(PACKAGE
-        "<<You must restart the program to see your changes to:%s"
-        "||&OK", warnings.c_str());
+      ui::Alert::show(
+        fmt::format(Strings::alerts_restart_by_preferences(),
+                    warnings));
     }
 
-    if (reset_screen) {
-      ui::Manager* manager = ui::Manager::getDefault();
-      she::Display* display = manager->getDisplay();
-      she::instance()->setGpuAcceleration(newGpuAccel);
-      display->setScale(newScreenScale);
-      manager->setDisplay(display);
+    if (reset_screen)
+      updateScreenScaling();
+  }
+
+  void restoreTheme() {
+    if (m_pref.theme.selected() != m_restoreThisTheme) {
+      setUITheme(m_restoreThisTheme, false);
+
+      // Restore UI & Screen Scaling
+      if (m_restoreUIScaling != m_pref.general.uiScale()) {
+        m_pref.general.uiScale(m_restoreUIScaling);
+        ui::set_theme(ui::get_theme(), m_restoreUIScaling);
+      }
+
+      if (m_restoreScreenScaling != m_pref.general.screenScale()) {
+        m_pref.general.screenScale(m_restoreScreenScaling);
+        updateScreenScaling();
+      }
     }
   }
 
 private:
+
+  void fillExtensionsCombobox(ui::ComboBox* combobox,
+                              const std::string& defExt) {
+    base::paths exts = get_writable_extensions();
+    for (const auto& e : exts) {
+      int index = combobox->addItem(e);
+      if (base::utf8_icmp(e, defExt) == 0)
+        combobox->setSelectedItemIndex(index);
+    }
+  }
+
+  std::string getExtension(ui::ComboBox* combobox) {
+    Widget* defExt = combobox->getSelectedItem();
+    ASSERT(defExt);
+    return (defExt ? defExt->text(): std::string());
+  }
+
+  void selectScalingItems() {
+    // Screen/UI Scale
+    screenScale()->setSelectedItemIndex(
+      screenScale()->findItemIndexByValue(
+        base::convert_to<std::string>(m_pref.general.screenScale())));
+
+    uiScale()->setSelectedItemIndex(
+      uiScale()->findItemIndexByValue(
+        base::convert_to<std::string>(m_pref.general.uiScale())));
+  }
+
+  void updateScreenScaling() {
+    ui::Manager* manager = ui::Manager::getDefault();
+    she::Display* display = manager->getDisplay();
+    she::instance()->setGpuAcceleration(m_pref.general.gpuAcceleration());
+    display->setScale(m_pref.general.screenScale());
+    manager->setDisplay(display);
+  }
+
+  void onApply() {
+    saveConfig();
+    m_restoreThisTheme = m_pref.theme.selected();
+    m_restoreScreenScaling = m_pref.general.screenScale();
+    m_restoreUIScaling = m_pref.general.uiScale();
+  }
+
   void onNativeCursorChange() {
     bool state =
       // If the platform supports native cursors...
@@ -471,8 +613,13 @@ private:
     panel()->showChild(findChild(item->getValue().c_str()));
     m_curSection = sectionListbox()->getSelectedIndex();
 
-    if (item->getValue() == kSectionBgId)
+    // General section
+    if (item->getValue() == kSectionGeneralId)
+      loadLanguages();
+    // Background section
+    else if (item->getValue() == kSectionBgId)
       onChangeBgScope();
+    // Grid section
     else if (item->getValue() == kSectionGridId)
       onChangeGridScope();
     // Load themes
@@ -481,6 +628,20 @@ private:
     // Load extension
     else if (item->getValue() == kSectionExtensionsId)
       loadExtensions();
+  }
+
+  void onClearRecentFiles() {
+    App::instance()->recentFiles()->clear();
+  }
+
+  void onResetAlerts() {
+    fileFormatDoesntSupportAlert()->setSelected(m_pref.saveFile.showFileFormatDoesntSupportAlert.defaultValue());
+    exportAnimationInSequenceAlert()->setSelected(m_pref.saveFile.showExportAnimationInSequenceAlert.defaultValue());
+    overwriteFilesOnExportAlert()->setSelected(m_pref.exportFile.showOverwriteFilesAlert.defaultValue());
+    overwriteFilesOnExportSpriteSheetAlert()->setSelected(m_pref.spriteSheet.showOverwriteFilesAlert.defaultValue());
+    gifOptionsAlert()->setSelected(m_pref.gif.showAlert.defaultValue());
+    jpegOptionsAlert()->setSelected(m_pref.jpeg.showAlert.defaultValue());
+    advancedModeAlert()->setSelected(m_pref.advancedMode.showAlert.defaultValue());
   }
 
   void onChangeBgScope() {
@@ -587,6 +748,36 @@ private:
     app::launcher::open_folder(app::main_config_filename());
   }
 
+  void onLimitUndoCheck() {
+    if (limitUndo()->isSelected()) {
+      undoSizeLimit()->setEnabled(true);
+      undoSizeLimit()->setTextf("%d", m_pref.undo.sizeLimit());
+    }
+    else {
+      undoSizeLimit()->setEnabled(false);
+      undoSizeLimit()->setText(kInfiniteSymbol);
+    }
+  }
+
+  void refillLanguages() {
+    language()->removeAllItems();
+    loadLanguages();
+  }
+
+  void loadLanguages() {
+    // Languages already loaded
+    if (language()->getItemCount() > 0)
+      return;
+
+    Strings* strings = Strings::instance();
+    std::string curLang = strings->currentLanguage();
+    for (const std::string& lang : strings->availableLanguages()) {
+      int i = language()->addItem(lang);
+      if (lang == curLang)
+        language()->setSelectedItemIndex(i);
+    }
+  }
+
   void reloadThemes() {
     while (themeList()->firstChild())
       delete themeList()->lastChild();
@@ -623,9 +814,8 @@ private:
 
         if (first) {
           first = false;
-          auto sep = new Separator(base::normalize_path(path), HORIZONTAL);
-          sep->setStyle(theme->styles.separatorInView());
-          themeList()->addChild(sep);
+          themeList()->addChild(
+            new SeparatorInView(base::normalize_path(path), HORIZONTAL));
         }
 
         ThemeItem* item = new ThemeItem(fullPath, fn);
@@ -648,9 +838,8 @@ private:
 
       if (first) {
         first = false;
-        auto sep = new Separator("Extension Themes", HORIZONTAL);
-        sep->setStyle(theme->styles.separatorInView());
-        themeList()->addChild(sep);
+        themeList()->addChild(
+          new SeparatorInView("Extension Themes", HORIZONTAL));
       }
 
       for (auto it : ext->themes()) {
@@ -675,6 +864,7 @@ private:
       ExtensionItem* item = new ExtensionItem(extension);
       extensionsList()->addChild(item);
     }
+    extensionsList()->sortItems();
 
     onExtensionChange();
     extensionsList()->layout();
@@ -688,13 +878,62 @@ private:
 
   void onSelectTheme() {
     ThemeItem* item = dynamic_cast<ThemeItem*>(themeList()->getSelectedChild());
-    if (item &&
-        item->themeName() != m_pref.theme.selected()) {
-      m_pref.theme.selected(item->themeName());
+    if (item)
+      setUITheme(item->themeName(), true);
+  }
 
-      ui::Alert::show(PACKAGE
-                      "<<You must restart the program to see the selected theme"
-                      "||&OK");
+  void setUITheme(const std::string& themeName,
+                  const bool updateScaling) {
+    try {
+      if (themeName != m_pref.theme.selected()) {
+        auto theme = static_cast<skin::SkinTheme*>(ui::get_theme());
+
+        // Change theme name from preferences
+        m_pref.theme.selected(themeName);
+
+        // Change the UI theme
+        ui::set_theme(theme, m_pref.general.uiScale());
+
+        // Ask for new scaling
+        const int newUIScale = theme->preferredUIScaling();
+        const int newScreenScale = theme->preferredScreenScaling();
+
+        if (updateScaling &&
+            ((newUIScale > 0 && m_pref.general.uiScale() != newUIScale) ||
+             (newScreenScale > 0 && m_pref.general.screenScale() != newScreenScale))) {
+          // Ask if the user want to adjust the Screen/UI Scaling
+          const int result =
+            ui::Alert::show(
+              fmt::format(
+                Strings::alerts_update_screen_ui_scaling_with_theme_values(),
+                themeName,
+                100 * m_pref.general.screenScale(),
+                100 * (newScreenScale > 0 ? newScreenScale: m_pref.general.screenScale()),
+                100 * m_pref.general.uiScale(),
+                100 * (newUIScale > 0 ? newUIScale: m_pref.general.uiScale())));
+
+          if (result == 1) {
+            // Preferred UI Scaling factor
+            if (newUIScale > 0 &&
+                newUIScale != m_pref.general.uiScale()) {
+              m_pref.general.uiScale(newUIScale);
+              ui::set_theme(theme, m_pref.general.uiScale());
+            }
+
+            // Preferred Screen Scaling
+            if (newScreenScale > 0 &&
+                newScreenScale != m_pref.general.screenScale()) {
+              m_pref.general.screenScale(newScreenScale);
+              updateScreenScaling();
+            }
+
+            selectScalingItems();
+          }
+        }
+      }
+    }
+    catch (const std::exception& ex) {
+      Console::showException(ex);
     }
   }
 
@@ -721,9 +960,10 @@ private:
   }
 
   void onAddExtension() {
-    FileSelectorFiles filename;
+    base::paths exts = { "zip" };
+    base::paths filename;
     if (!app::show_file_selector(
-          "Add Extension", "", "zip",
+          "Add Extension", "", exts,
           FileSelectorType::Open, filename))
       return;
 
@@ -748,14 +988,13 @@ private:
 
         // Uninstall?
         if (ui::Alert::show(
-              "Update Extension"
-              "<<The extension '%s' already exists."
-              "<<Do you want to %s from v%s to v%s?"
-              "||&Yes||&No",
-              ext->name().c_str(),
-              (isDowngrade ? "downgrade": "upgrade"),
-              ext->version().c_str(),
-              info.version.c_str()) != 1)
+              fmt::format(
+                Strings::alerts_update_extension(),
+                ext->name(),
+                (isDowngrade ? Strings::alerts_update_extension_downgrade():
+                               Strings::alerts_update_extension_upgrade()),
+                ext->version(),
+                info.version)) != 1)
           return;
 
         // Uninstall old version
@@ -781,7 +1020,7 @@ private:
       extensionsList()->selectChild(item);
       extensionsList()->layout();
     }
-    catch (std::exception& ex) {
+    catch (const std::exception& ex) {
       Console::showException(ex);
     }
   }
@@ -800,17 +1039,16 @@ private:
       return;
 
     if (ui::Alert::show(
-          "Warning"
-          "<<Do you really want to uninstall '%s' extension?"
-          "||&Yes||&No",
-          item->text().c_str()) != 1)
+          fmt::format(
+            Strings::alerts_uninstall_extension_warning(),
+            item->text())) != 1)
       return;
 
     try {
       item->uninstall();
       deleteExtensionItem(item);
     }
-    catch (std::exception& ex) {
+    catch (const std::exception& ex) {
       Console::showException(ex);
     }
   }
@@ -873,11 +1111,11 @@ private:
     return base::normalize_path(rf.defaultFilename());
   }
 
-  static std::vector<std::string> themeFolders() {
+  static base::paths themeFolders() {
     ResourceFinder rf;
     rf.includeDataDir(skin::SkinTheme::kThemesFolderName);
 
-    std::vector<std::string> paths;
+    base::paths paths;
     while (rf.next())
       paths.push_back(base::normalize_path(rf.filename()));
     return paths;
@@ -888,7 +1126,11 @@ private:
   DocumentPreferences& m_docPref;
   DocumentPreferences* m_curPref;
   int& m_curSection;
+  obs::scoped_connection m_extLanguagesChanges;
   obs::scoped_connection m_extThemesChanges;
+  std::string m_restoreThisTheme;
+  int m_restoreScreenScaling;
+  int m_restoreUIScaling;
 };
 
 class OptionsCommand : public Command {
@@ -901,9 +1143,7 @@ protected:
 };
 
 OptionsCommand::OptionsCommand()
-  : Command("Options",
-            "Options",
-            CmdUIOnlyFlag)
+  : Command(CommandId::Options(), CmdUIOnlyFlag)
 {
   Preferences& preferences = Preferences::instance();
 
@@ -919,6 +1159,8 @@ void OptionsCommand::onExecute(Context* context)
   window.openWindowInForeground();
   if (window.ok())
     window.saveConfig();
+  else
+    window.restoreTheme();
 }
 
 Command* CommandFactory::createOptionsCommand()

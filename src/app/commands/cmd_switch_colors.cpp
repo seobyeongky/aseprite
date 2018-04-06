@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -28,9 +28,7 @@ protected:
 };
 
 SwitchColorsCommand::SwitchColorsCommand()
-  : Command("SwitchColors",
-            "Switch Colors",
-            CmdUIOnlyFlag)
+  : Command(CommandId::SwitchColors(), CmdUIOnlyFlag)
 {
 }
 
@@ -53,6 +51,7 @@ void SwitchColorsCommand::onExecute(Context* context)
     }
   }
 
+  DisableColorBarEditMode disable;
   ColorBar* colorbar = ColorBar::instance();
   app::Color fg = colorbar->getFgColor();
   app::Color bg = colorbar->getBgColor();

@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -11,10 +11,12 @@
 #include "app/commands/command.h"
 #include "app/context_access.h"
 #include "app/file_selector.h"
+#include "app/i18n/strings.h"
 #include "app/util/msk_file.h"
 #include "base/fs.h"
 #include "doc/mask.h"
 #include "doc/sprite.h"
+#include "fmt/format.h"
 #include "ui/alert.h"
 
 namespace app {
@@ -30,9 +32,7 @@ protected:
 };
 
 SaveMaskCommand::SaveMaskCommand()
-  : Command("SaveMask",
-            "Save Mask",
-            CmdUIOnlyFlag)
+  : Command(CommandId::SaveMask(), CmdUIOnlyFlag)
 {
 }
 
@@ -46,16 +46,17 @@ void SaveMaskCommand::onExecute(Context* context)
   const ContextReader reader(context);
   const Document* document(reader.document());
 
-  FileSelectorFiles selFilename;
+  base::paths exts = { "msk" };
+  base::paths selFilename;
   if (!app::show_file_selector(
-        "Save .msk File", "default.msk", "msk",
+        "Save .msk File", "default.msk", exts,
         FileSelectorType::Save, selFilename))
     return;
 
   std::string filename = selFilename.front();
 
   if (save_msk_file(document->mask(), filename.c_str()) != 0)
-    ui::Alert::show("Error<<Error saving .msk file<<%s||&Close", filename.c_str());
+    ui::Alert::show(fmt::format(Strings::alerts_error_saving_file(), filename));
 }
 
 Command* CommandFactory::createSaveMaskCommand()

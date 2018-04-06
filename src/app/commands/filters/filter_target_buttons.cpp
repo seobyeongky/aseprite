@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,6 +10,7 @@
 
 #include "app/commands/filters/filter_target_buttons.h"
 
+#include "app/i18n/strings.h"
 #include "app/modules/gfx.h"
 #include "app/modules/gui.h"
 #include "app/ui/skin/skin_theme.h"
@@ -31,6 +32,7 @@ using namespace ui;
 FilterTargetButtons::FilterTargetButtons(int imgtype, bool withChannels)
   : ButtonSet(4)
   , m_target(0)
+  , m_celsTarget(CelsTarget::Selected)
   , m_red(nullptr)
   , m_green(nullptr)
   , m_blue(nullptr)
@@ -65,22 +67,25 @@ FilterTargetButtons::FilterTargetButtons(int imgtype, bool withChannels)
 
   // Create the button to select which cels will be modified by the
   // filter.
-  m_cels = addItem(getCelsIcon(), 4, 1);
+  m_cels = addItem(getCelsTargetText(), 4, 1);
 }
 
-void FilterTargetButtons::setTarget(int target)
+void FilterTargetButtons::setTarget(const int target)
 {
-  m_target &= (TARGET_ALL_FRAMES | TARGET_ALL_LAYERS);
-  m_target |= (target & ~(TARGET_ALL_FRAMES | TARGET_ALL_LAYERS));
-
+  m_target = target;
   selectTargetButton(m_red,   TARGET_RED_CHANNEL);
   selectTargetButton(m_green, TARGET_GREEN_CHANNEL);
   selectTargetButton(m_blue,  TARGET_BLUE_CHANNEL);
   selectTargetButton(m_alpha, TARGET_ALPHA_CHANNEL);
   selectTargetButton(m_gray,  TARGET_GRAY_CHANNEL);
   selectTargetButton(m_index, TARGET_INDEX_CHANNEL);
-
   updateFromTarget();
+}
+
+void FilterTargetButtons::setCelsTarget(const CelsTarget celsTarget)
+{
+  m_celsTarget = celsTarget;
+  updateFromCelsTarget();
 }
 
 void FilterTargetButtons::selectTargetButton(Item* item, Target specificTarget)
@@ -91,32 +96,18 @@ void FilterTargetButtons::selectTargetButton(Item* item, Target specificTarget)
 
 void FilterTargetButtons::updateFromTarget()
 {
-  m_cels->setIcon(getCelsIcon());
-
   updateComponentTooltip(m_red, "Red", BOTTOM);
   updateComponentTooltip(m_green, "Green", BOTTOM);
   updateComponentTooltip(m_blue, "Blue", BOTTOM);
   updateComponentTooltip(m_gray, "Gray", BOTTOM);
   updateComponentTooltip(m_alpha, "Alpha", BOTTOM);
   updateComponentTooltip(m_index, "Index", LEFT);
+}
 
-  const char* celsTooltip = "";
-  switch (m_target & (TARGET_ALL_FRAMES | TARGET_ALL_LAYERS)) {
-    case 0:
-      celsTooltip = "Apply to the active frame/layer (the active cel)";
-      break;
-    case TARGET_ALL_FRAMES:
-      celsTooltip = "Apply to all frames in the active layer";
-      break;
-    case TARGET_ALL_LAYERS:
-      celsTooltip = "Apply to all layers in the active frame";
-      break;
-    case TARGET_ALL_FRAMES | TARGET_ALL_LAYERS:
-      celsTooltip = "Apply to all cels in the sprite";
-      break;
-  }
-
-  m_tooltips.addTooltipFor(m_cels, celsTooltip, LEFT);
+void FilterTargetButtons::updateFromCelsTarget()
+{
+  m_cels->setText(getCelsTargetText());
+  m_tooltips.addTooltipFor(m_cels, getCelsTargetTooltip(), LEFT);
 }
 
 void FilterTargetButtons::updateComponentTooltip(Item* item, const char* channelName, int align)
@@ -133,7 +124,6 @@ void FilterTargetButtons::updateComponentTooltip(Item* item, const char* channel
 void FilterTargetButtons::onItemChange(Item* item)
 {
   ButtonSet::onItemChange(item);
-  Target flags = (m_target & (TARGET_ALL_FRAMES | TARGET_ALL_LAYERS));
 
   if (m_index && item && item->isSelected()) {
     if (item == m_index) {
@@ -150,51 +140,53 @@ void FilterTargetButtons::onItemChange(Item* item)
     }
   }
 
-  if (m_red && m_red->isSelected()) flags |= TARGET_RED_CHANNEL;
-  if (m_green && m_green->isSelected()) flags |= TARGET_GREEN_CHANNEL;
-  if (m_blue && m_blue->isSelected()) flags |= TARGET_BLUE_CHANNEL;
-  if (m_gray && m_gray->isSelected()) flags |= TARGET_GRAY_CHANNEL;
-  if (m_index && m_index->isSelected()) flags |= TARGET_INDEX_CHANNEL;
-  if (m_alpha && m_alpha->isSelected()) flags |= TARGET_ALPHA_CHANNEL;
+  Target target = 0;
+  if (m_red && m_red->isSelected()) target |= TARGET_RED_CHANNEL;
+  if (m_green && m_green->isSelected()) target |= TARGET_GREEN_CHANNEL;
+  if (m_blue && m_blue->isSelected()) target |= TARGET_BLUE_CHANNEL;
+  if (m_gray && m_gray->isSelected()) target |= TARGET_GRAY_CHANNEL;
+  if (m_index && m_index->isSelected()) target |= TARGET_INDEX_CHANNEL;
+  if (m_alpha && m_alpha->isSelected()) target |= TARGET_ALPHA_CHANNEL;
 
+  CelsTarget celsTarget = m_celsTarget;
   if (m_cels->isSelected()) {
     m_cels->setSelected(false);
-
-    // Rotate cels target
-    if (flags & TARGET_ALL_FRAMES) {
-      flags &= ~TARGET_ALL_FRAMES;
-
-      if (flags & TARGET_ALL_LAYERS)
-        flags &= ~TARGET_ALL_LAYERS;
-      else
-        flags |= TARGET_ALL_LAYERS;
-    }
-    else {
-      flags |= TARGET_ALL_FRAMES;
-    }
+    celsTarget =              // Switch cels target
+      (m_celsTarget == CelsTarget::Selected ?
+       CelsTarget::All:
+       CelsTarget::Selected);
   }
 
-  if (m_target != flags) {
-    m_target = flags;
-    updateFromTarget();
+  if (m_target != target ||
+      m_celsTarget != celsTarget) {
+    if (m_target != target) {
+      m_target = target;
+      updateFromTarget();
+    }
+    if (m_celsTarget != celsTarget) {
+      m_celsTarget = celsTarget;
+      updateFromCelsTarget();
+    }
     TargetChange();
   }
 }
 
-SkinPartPtr FilterTargetButtons::getCelsIcon() const
+std::string FilterTargetButtons::getCelsTargetText() const
 {
-  SkinTheme* theme = SkinTheme::instance();
+  switch (m_celsTarget) {
+    case CelsTarget::Selected: return Strings::filters_selected_cels();
+    case CelsTarget::All: return Strings::filters_all_cels();
+  }
+  return std::string();
+}
 
-  if (m_target & TARGET_ALL_FRAMES) {
-    return (m_target & TARGET_ALL_LAYERS) ?
-      theme->parts.targetFramesLayers():
-      theme->parts.targetFrames();
+std::string FilterTargetButtons::getCelsTargetTooltip() const
+{
+  switch (m_celsTarget) {
+    case CelsTarget::Selected: return Strings::filters_selected_cels_tooltip();
+    case CelsTarget::All: return Strings::filters_all_cels_tooltip();
   }
-  else {
-    return (m_target & TARGET_ALL_LAYERS) ?
-      theme->parts.targetLayers():
-      theme->parts.targetOne();
-  }
+  return std::string();
 }
 
 } // namespace app

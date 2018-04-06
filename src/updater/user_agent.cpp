@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -19,10 +19,13 @@
 
 #elif __APPLE__ // Mac OS X
 
-  void getMacOSXVersion(int* major, int* minor, int* bugFix);
+  void getMacOSXVersion(int& major, int& minor, int& patch);
 
 #else  // Unix-like system
 
+  #include "base/trim_string.h"
+  #include "cfg/cfg.h"
+  #include <cstring>
   #include <sys/utsname.h>
 
 #endif
@@ -79,18 +82,67 @@ std::string getUserAgent()
   // ----------------------------------------------------------------------
   // Mac OS X
 
-  int major, minor, bugFix;
-  getMacOSXVersion(&major, &minor, &bugFix);
-  userAgent << "Mac OS X " << major << "." << minor << "." << bugFix;
+  int major, minor, patch;
+  getMacOSXVersion(major, minor, patch);
+  userAgent << "Mac OS X " << major << "." << minor << "." << patch;
 
 #else
 
   // ----------------------------------------------------------------------
   // Unix like
 
-  struct utsname utsn;
-  uname(&utsn);
-  userAgent << utsn.sysname << " " << utsn.release;
+  cfg::CfgFile file;
+
+  auto isQuote = [](int c) {
+    return
+    c == '"' ||
+    c == '\'' ||
+    std::isspace(c);
+  };
+
+  auto getValue = [&file, &isQuote](const char* varName) -> std::string {
+    std::string result;
+    const char* value = file.getValue("", varName, nullptr);
+    if (value && std::strlen(value) > 0)
+      base::trim_string(value, result, isQuote);
+    return result;
+  };
+
+  // Read information from /etc/os-release
+  file.load("/etc/os-release");
+  std::string name = getValue("PRETTY_NAME");
+  if (!name.empty()) {
+    userAgent << name;
+  }
+  else {
+    name = getValue("NAME");
+    std::string version = getValue("VERSION");
+    if (!name.empty() && !version.empty()) {
+      userAgent << name << " " << version;
+    }
+    else {
+      // Read information from /etc/lsb-release
+      file.load("/etc/lsb-release");
+      name = getValue("DISTRIB_DESCRIPTION");
+      if (!name.empty()) {
+        userAgent << name;
+      }
+      else {
+        name = getValue("DISTRIB_ID");
+        version = getValue("DISTRIB_RELEASE");
+        if (!name.empty() &&
+            !version.empty()) {
+          userAgent << name << " " << version;
+        }
+        else {
+          // Last resource, use uname() function
+          struct utsname utsn;
+          uname(&utsn);
+          userAgent << utsn.sysname << " " << utsn.release;
+        }
+      }
+    }
+  }
 
 #endif
 

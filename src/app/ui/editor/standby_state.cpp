@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -56,6 +56,7 @@
 #include "fixmath/fixmath.h"
 #include "gfx/rect.h"
 #include "she/surface.h"
+#include "she/system.h"
 #include "ui/alert.h"
 #include "ui/message.h"
 #include "ui/system.h"
@@ -208,7 +209,7 @@ bool StandbyState::onMouseDown(Editor* editor, MouseMessage* msg)
   // Call the eyedropper command
   if (clickedInk->isEyedropper()) {
     editor->captureMouse();
-    callEyedropper(editor);
+    callEyedropper(editor, msg);
     return true;
   }
 
@@ -248,7 +249,9 @@ bool StandbyState::onMouseDown(Editor* editor, MouseMessage* msg)
     // Transform selected pixels
     if (editor->isActive() &&
         document->isMaskVisible() &&
-        m_decorator->getTransformHandles(editor)) {
+        m_decorator->getTransformHandles(editor) &&
+        (!Preferences::instance().selection.modifiersDisableHandles() ||
+         msg->modifiers() == kKeyNoneModifier)) {
       TransformHandles* transfHandles = m_decorator->getTransformHandles(editor);
 
       // Get the handle covered by the mouse.
@@ -280,7 +283,7 @@ bool StandbyState::onMouseDown(Editor* editor, MouseMessage* msg)
     }
 
     // Move selected pixels
-    if (layer && editor->isInsideSelection() && msg->left()) {
+    if (layer && editor->canStartMovingSelectionPixels() && msg->left()) {
       if (!layer->isEditableHierarchy()) {
         StatusBar::instance()->showTip(1000,
           "Layer '%s' is locked", layer->name().c_str());
@@ -313,6 +316,16 @@ bool StandbyState::onMouseDown(Editor* editor, MouseMessage* msg)
 
   // Start the Tool-Loop
   if (layer && (layer->isImage() || clickedInk->isSelection())) {
+    // Shift+click on Pencil tool starts a line onMouseDown() when the
+    // preview (onKeyDown) is disabled.
+    if (!Preferences::instance().editor.straightLinePreview() &&
+        checkStartDrawingStraightLine(editor, msg)) {
+      // Send first mouse down to draw the straight line and start the
+      // freehand mode.
+      editor->getState()->onMouseDown(editor, msg);
+      return true;
+    }
+
     // Disable layer edges to avoid showing the modified cel
     // information by ExpandCelCanvas (i.e. the cel origin is changed
     // to 0,0 coordinate.)
@@ -347,7 +360,7 @@ bool StandbyState::onMouseMove(Editor* editor, MouseMessage* msg)
     tools::Ink* clickedInk = editor->getCurrentEditorInk();
     if (clickedInk->isEyedropper() &&
         editor->hasCapture()) {
-      callEyedropper(editor);
+      callEyedropper(editor, msg);
     }
   }
 
@@ -365,7 +378,7 @@ bool StandbyState::onDoubleClick(Editor* editor, MouseMessage* msg)
   // Select a tile with double-click
   if (ink->isSelection()) {
     Command* selectTileCmd =
-      CommandsModule::instance()->getCommandByName(CommandId::SelectTile);
+      Commands::instance()->byId(CommandId::SelectTile());
 
     Params params;
     if (int(editor->getToolLoopModifiers()) & int(tools::ToolLoopModifiers::kAddSelection))
@@ -398,7 +411,7 @@ bool StandbyState::onSetCursor(Editor* editor, const gfx::Point& mouseScreenPos)
       }
 
       // Move pixels
-      if (editor->isInsideSelection()) {
+      if (editor->canStartMovingSelectionPixels()) {
         EditorCustomizationDelegate* customization = editor->getCustomizationDelegate();
         if ((customization) &&
             int(customization->getPressedKeyAction(KeyContext::TranslatingSelection) & KeyAction::CopySelection))
@@ -487,8 +500,9 @@ bool StandbyState::onSetCursor(Editor* editor, const gfx::Point& mouseScreenPos)
 
 bool StandbyState::onKeyDown(Editor* editor, KeyMessage* msg)
 {
-  if (checkStartDrawingStraightLine(editor))
-    return true;
+  if (Preferences::instance().editor.straightLinePreview() &&
+      checkStartDrawingStraightLine(editor, nullptr))
+    return false;
   return false;
 }
 
@@ -501,7 +515,9 @@ bool StandbyState::onUpdateStatusBar(Editor* editor)
 {
   tools::Ink* ink = editor->getCurrentEditorInk();
   const Sprite* sprite = editor->sprite();
-  gfx::PointF spritePos = editor->screenToEditorF(ui::get_mouse_position());
+  gfx::PointF spritePos =
+    editor->screenToEditorF(ui::get_mouse_position())
+    - gfx::PointF(editor->mainTilePosition());
 
   if (!sprite) {
     StatusBar::instance()->clearText();
@@ -591,6 +607,7 @@ DrawingState* StandbyState::startDrawingState(Editor* editor,
   tools::ToolLoop* toolLoop = create_tool_loop(
     editor,
     UIContext::instance(),
+    pointer.button(),
     (drawingType == DrawingType::LineFreehand));
   if (!toolLoop)
     return nullptr;
@@ -608,21 +625,26 @@ DrawingState* StandbyState::startDrawingState(Editor* editor,
   return static_cast<DrawingState*>(newState.get());
 }
 
-bool StandbyState::checkStartDrawingStraightLine(Editor* editor)
+bool StandbyState::checkStartDrawingStraightLine(Editor* editor,
+                                                 const ui::MouseMessage* msg)
 {
   // Start line preview with shift key
-  if (editor->startStraightLineWithFreehandTool()) {
+  if (editor->startStraightLineWithFreehandTool(msg)) {
+    tools::Pointer::Button pointerButton =
+      (msg ? button_from_msg(msg): tools::Pointer::Left);
+
     DrawingState* drawingState =
       startDrawingState(editor,
                         DrawingType::LineFreehand,
                         tools::Pointer(
                           editor->document()->lastDrawingPoint(),
-                          tools::Pointer::Left));
+                          pointerButton));
     if (drawingState) {
       drawingState->sendMovementToToolLoop(
         tools::Pointer(
-          editor->screenToEditor(ui::get_mouse_position()),
-          tools::Pointer::Left));
+          editor->screenToEditor(msg ? msg->position():
+                                       ui::get_mouse_position()),
+          pointerButton));
       return true;
     }
   }
@@ -711,20 +733,18 @@ void StandbyState::transformSelection(Editor* editor, MouseMessage* msg, HandleT
   }
 }
 
-void StandbyState::callEyedropper(Editor* editor)
+void StandbyState::callEyedropper(Editor* editor, const ui::MouseMessage* msg)
 {
   tools::Ink* clickedInk = editor->getCurrentEditorInk();
   if (!clickedInk->isEyedropper())
     return;
 
-  Command* eyedropper_cmd =
-    CommandsModule::instance()->getCommandByName(CommandId::Eyedropper);
+  EyedropperCommand* eyedropper =
+    (EyedropperCommand*)Commands::instance()->byId(CommandId::Eyedropper());
   bool fg = (static_cast<tools::PickInk*>(clickedInk)->target() == tools::PickInk::Fg);
 
-  Params params;
-  params.set("target", fg ? "foreground": "background");
-
-  UIContext::instance()->executeCommand(eyedropper_cmd, params);
+  eyedropper->executeOnMousePos(UIContext::instance(), editor,
+                                msg->position(), fg);
 }
 
 void StandbyState::onPivotChange(Editor* editor)
@@ -763,9 +783,13 @@ bool StandbyState::overSelectionEdges(Editor* editor,
       editor->document()->getMaskBoundaries() &&
       // TODO improve this check, how we can know that we aren't in the MovingPixelsState
       !dynamic_cast<MovingPixelsState*>(editor->getState().get())) {
+    gfx::Point mainOffset(editor->mainTilePosition());
+
     // For each selection edge
     for (const auto& seg : *editor->document()->getMaskBoundaries()) {
-      gfx::Rect segBounds = editor->editorToScreen(seg.bounds());
+      gfx::Rect segBounds = seg.bounds();
+      segBounds.offset(mainOffset);
+      segBounds = editor->editorToScreen(segBounds);
       if (seg.vertical())
         segBounds.w = 1;
       else
@@ -807,7 +831,11 @@ bool StandbyState::Decorator::onSetCursor(tools::Ink* ink, Editor* editor, const
   if (!editor->isActive())
     return false;
 
-  if (ink && ink->isSelection() && editor->document()->isMaskVisible()) {
+  if (ink &&
+      ink->isSelection() &&
+      editor->document()->isMaskVisible() &&
+      (!Preferences::instance().selection.modifiersDisableHandles() ||
+       she::instance()->keyModifiers() == kKeyNoneModifier)) {
     auto theme = skin::SkinTheme::instance();
     const Transformation transformation(m_standbyState->getTransformation(editor));
     TransformHandles* tr = getTransformHandles(editor);
@@ -959,8 +987,11 @@ bool StandbyState::Decorator::getSymmetryHandles(Editor* editor, Handles& handle
     const auto& symmetry = Preferences::instance().document(editor->document()).symmetry;
     auto mode = symmetry.mode();
     if (mode != app::gen::SymmetryMode::NONE) {
-      gfx::RectF spriteBounds = gfx::RectF(editor->sprite()->bounds());
-      gfx::RectF editorViewport = gfx::RectF(View::getView(editor)->viewportBounds());
+      gfx::Rect mainTileBounds(editor->mainTilePosition(),
+                               editor->sprite()->bounds().size());
+      gfx::Rect canvasBounds(gfx::Point(0, 0),
+                             editor->canvasSize());
+      gfx::RectF editorViewport(View::getView(editor)->viewportBounds());
       skin::SkinTheme* theme = static_cast<skin::SkinTheme*>(ui::get_theme());
       she::Surface* part = theme->parts.transformationHandle()->bitmap(0);
 
@@ -968,9 +999,9 @@ bool StandbyState::Decorator::getSymmetryHandles(Editor* editor, Handles& handle
         double pos = symmetry.xAxis();
         gfx::PointF pt1, pt2;
 
-        pt1 = gfx::PointF(spriteBounds.x+pos, spriteBounds.y);
+        pt1 = gfx::PointF(mainTileBounds.x+pos, canvasBounds.y);
         pt1 = editor->editorToScreenF(pt1);
-        pt2 = gfx::PointF(spriteBounds.x+pos, spriteBounds.y+spriteBounds.h);
+        pt2 = gfx::PointF(mainTileBounds.x+pos, canvasBounds.y2());
         pt2 = editor->editorToScreenF(pt2);
         pt1.y = std::max(pt1.y-part->height(), editorViewport.y);
         pt2.y = std::min(pt2.y, editorViewport.point2().y-part->height());
@@ -989,9 +1020,9 @@ bool StandbyState::Decorator::getSymmetryHandles(Editor* editor, Handles& handle
         double pos = symmetry.yAxis();
         gfx::PointF pt1, pt2;
 
-        pt1 = gfx::PointF(spriteBounds.x, spriteBounds.y+pos);
+        pt1 = gfx::PointF(canvasBounds.x, mainTileBounds.y+pos);
         pt1 = editor->editorToScreenF(pt1);
-        pt2 = gfx::PointF(spriteBounds.x+spriteBounds.w, spriteBounds.y+pos);
+        pt2 = gfx::PointF(canvasBounds.x2(), mainTileBounds.y+pos);
         pt2 = editor->editorToScreenF(pt2);
         pt1.x = std::max(pt1.x-part->width(), editorViewport.x);
         pt2.x = std::min(pt2.x, editorViewport.point2().x-part->width());

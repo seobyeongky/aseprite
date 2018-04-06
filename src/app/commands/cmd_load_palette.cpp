@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -14,10 +14,12 @@
 #include "app/context.h"
 #include "app/file/palette_file.h"
 #include "app/file_selector.h"
+#include "app/i18n/strings.h"
 #include "app/modules/palettes.h"
 #include "base/fs.h"
 #include "base/unique_ptr.h"
 #include "doc/palette.h"
+#include "fmt/format.h"
 #include "ui/alert.h"
 
 namespace app {
@@ -39,9 +41,7 @@ private:
 };
 
 LoadPaletteCommand::LoadPaletteCommand()
-  : Command("LoadPalette",
-            "Load Palette",
-            CmdRecordableFlag)
+  : Command(CommandId::LoadPalette(), CmdRecordableFlag)
 {
 }
 
@@ -64,11 +64,11 @@ void LoadPaletteCommand::onExecute(Context* context)
     filename = m_filename;
   }
   else {
-    std::string exts = get_readable_palette_extensions();
-
-    FileSelectorFiles filenames;
-    if (app::show_file_selector("Load Palette", "", exts,
-                                FileSelectorType::Open, filenames)) {
+    base::paths exts = get_readable_palette_extensions();
+    base::paths filenames;
+    if (app::show_file_selector(
+          "Load Palette", "", exts,
+          FileSelectorType::Open, filenames)) {
       filename = filenames.front();
     }
   }
@@ -80,12 +80,12 @@ void LoadPaletteCommand::onExecute(Context* context)
   base::UniquePtr<doc::Palette> palette(load_palette(filename.c_str()));
   if (!palette) {
     if (context->isUIAvailable())
-      Alert::show("Error<<Loading palette file||&Close");
+      ui::Alert::show(fmt::format(Strings::alerts_error_loading_file(), filename));
     return;
   }
 
   SetPaletteCommand* cmd = static_cast<SetPaletteCommand*>(
-    CommandsModule::instance()->getCommandByName(CommandId::SetPalette));
+    Commands::instance()->byId(CommandId::SetPalette()));
   cmd->setPalette(palette);
   context->executeCommand(cmd);
 }

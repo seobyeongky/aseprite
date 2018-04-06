@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,6 +10,7 @@
 
 #include "app/commands/filters/filter_manager_impl.h"
 
+#include "app/app.h"
 #include "app/cmd/copy_region.h"
 #include "app/cmd/patch_cel.h"
 #include "app/cmd/set_palette.h"
@@ -23,10 +24,12 @@
 #include "app/ui/color_bar.h"
 #include "app/ui/editor/editor.h"
 #include "app/ui/palette_view.h"
+#include "app/ui/timeline/timeline.h"
+#include "app/util/range_utils.h"
 #include "doc/algorithm/shrink_bounds.h"
 #include "doc/cel.h"
+#include "doc/cels_range.h"
 #include "doc/image.h"
-#include "doc/images_collector.h"
 #include "doc/layer.h"
 #include "doc/mask.h"
 #include "doc/site.h"
@@ -52,15 +55,15 @@ FilterManagerImpl::FilterManagerImpl(Context* context, Filter* filter)
   , m_cel(nullptr)
   , m_src(nullptr)
   , m_dst(nullptr)
+  , m_row(0)
   , m_mask(nullptr)
   , m_previewMask(nullptr)
+  , m_targetOrig(TARGET_ALL_CHANNELS)
+  , m_target(TARGET_ALL_CHANNELS)
+  , m_celsTarget(CelsTarget::Selected)
   , m_oldPalette(nullptr)
   , m_progressDelegate(NULL)
 {
-  m_row = 0;
-  m_targetOrig = TARGET_ALL_CHANNELS;
-  m_target = TARGET_ALL_CHANNELS;
-
   int x, y;
   Image* image = m_site.image(&x, &y);
   if (!image)
@@ -103,6 +106,11 @@ void FilterManagerImpl::setTarget(int target)
     m_target &= ~TARGET_ALPHA_CHANNEL;
 }
 
+void FilterManagerImpl::setCelsTarget(CelsTarget celsTarget)
+{
+  m_celsTarget = celsTarget;
+}
+
 void FilterManagerImpl::begin()
 {
   Document* document = static_cast<app::Document*>(m_site.document());
@@ -126,8 +134,9 @@ void FilterManagerImpl::beginForPreview()
   m_row = m_nextRowToFlush = 0;
   m_mask = m_previewMask;
 
-  {
-    Editor* editor = current_editor;
+  Editor* editor = current_editor;
+  // If we have a tiled mode enabled, we'll apply the filter to the whole areaes
+  if (editor->docPref().tiled.mode() == filters::TiledMode::NONE) {
     Sprite* sprite = m_site.sprite();
     gfx::Rect vp = View::getView(editor)->viewportBounds();
     vp = editor->screenToEditor(vp);
@@ -183,7 +192,7 @@ bool FilterManagerImpl::applyStep()
   return true;
 }
 
-void FilterManagerImpl::apply(Transaction& transaction)
+void FilterManagerImpl::apply()
 {
   bool cancelled = false;
 
@@ -203,7 +212,7 @@ void FilterManagerImpl::apply(Transaction& transaction)
     if (algorithm::shrink_bounds2(m_src.get(), m_dst.get(),
                                   m_bounds, output)) {
       if (m_cel->layer()->isBackground()) {
-        transaction.execute(
+        m_transaction->execute(
           new cmd::CopyRegion(
             m_cel->image(),
             m_dst.get(),
@@ -212,7 +221,7 @@ void FilterManagerImpl::apply(Transaction& transaction)
       }
       else {
         // Patch "m_cel"
-        transaction.execute(
+        m_transaction->execute(
           new cmd::PatchCel(
             m_cel, m_dst.get(),
             gfx::Region(output),
@@ -227,22 +236,44 @@ void FilterManagerImpl::applyToTarget()
   const bool paletteChange = paletteHasChanged();
   bool cancelled = false;
 
-  ImagesCollector images((m_target & TARGET_ALL_LAYERS ?
-                          m_site.sprite()->root():
-                          m_site.layer()),
-                         m_site.frame(),
-                         (m_target & TARGET_ALL_FRAMES) == TARGET_ALL_FRAMES,
-                         true); // we will write in each image
-  if (images.empty() && !paletteChange)
+  CelList cels;
+
+  switch (m_celsTarget) {
+
+    case CelsTarget::Selected: {
+      auto range = App::instance()->timeline()->range();
+      if (range.enabled())
+        cels = get_unlocked_unique_cels(m_site.sprite(), range);
+      else if (m_site.cel() &&
+               m_site.layer() &&
+               m_site.layer()->isEditable()) {
+        cels.push_back(m_site.cel());
+      }
+      break;
+    }
+
+    case CelsTarget::All: {
+      for (Cel* cel : m_site.sprite()->uniqueCels()) {
+        if (cel->layer()->isEditable())
+          cels.push_back(cel);
+      }
+      break;
+    }
+  }
+
+  if (cels.empty() && !paletteChange) {
+    // We don't have images/palette changes to do (there will not be a
+    // transaction).
     return;
+  }
 
   // Initialize writting operation
   ContextReader reader(m_context);
   ContextWriter writer(reader);
-  Transaction transaction(writer.context(), m_filter->getName(), ModifyDocument);
+  m_transaction.reset(new Transaction(writer.context(), m_filter->getName(), ModifyDocument));
 
   m_progressBase = 0.0f;
-  m_progressWidth = 1.0f / images.size();
+  m_progressWidth = (cels.size() > 0 ? 1.0f / cels.size(): 1.0f);
 
   std::set<ObjectId> visited;
 
@@ -250,21 +281,21 @@ void FilterManagerImpl::applyToTarget()
   if (paletteChange) {
     Palette newPalette = *getNewPalette();
     restoreSpritePalette();
-    transaction.execute(
+    m_transaction->execute(
       new cmd::SetPalette(m_site.sprite(),
                           m_site.frame(), &newPalette));
   }
 
   // For each target image
-  for (auto it = images.begin();
-       it != images.end() && !cancelled;
+  for (auto it = cels.begin();
+       it != cels.end() && !cancelled;
        ++it) {
-    Image* image = it->image();
+    Image* image = (*it)->image();
 
     // Avoid applying the filter two times to the same image
     if (visited.find(image->id()) == visited.end()) {
       visited.insert(image->id());
-      applyToCel(transaction, it->cel());
+      applyToCel(*it);
     }
 
     // Is there a delegate to know if the process was cancelled by the user?
@@ -275,10 +306,21 @@ void FilterManagerImpl::applyToTarget()
     m_progressBase += m_progressWidth;
   }
 
-  transaction.commit();
-
   // Reset m_oldPalette to avoid restoring the color palette
   m_oldPalette.reset(nullptr);
+}
+
+bool FilterManagerImpl::isTransaction() const
+{
+  return m_transaction != nullptr;
+}
+
+// This must be executed in the main UI thread.
+// Check Transaction::commit() comments.
+void FilterManagerImpl::commitTransaction()
+{
+  ASSERT(m_transaction);
+  m_transaction->commit();
 }
 
 void FilterManagerImpl::flush()
@@ -289,10 +331,8 @@ void FilterManagerImpl::flush()
     Editor* editor = current_editor;
 
     // Redraw the color palette
-    if (m_nextRowToFlush == 0 && paletteHasChanged()) {
-      set_current_palette(getNewPalette(), false);
-      ColorBar::instance()->invalidate();
-    }
+    if (m_nextRowToFlush == 0 && paletteHasChanged())
+      redrawColorPalette();
 
     // We expand the region one pixel at the top and bottom of the
     // region [m_row,m_nextRowToFlush) to be updated on the screen to
@@ -309,12 +349,25 @@ void FilterManagerImpl::flush()
                                               editor->projection().removeY(h+2))));
 
     gfx::Region reg1(rect);
+    editor->expandRegionByTiledMode(reg1, true);
+
     gfx::Region reg2;
     editor->getDrawableRegion(reg2, Widget::kCutTopWindows);
     reg1.createIntersection(reg1, reg2);
 
     editor->invalidateRegion(reg1);
     m_nextRowToFlush = m_row+1;
+  }
+}
+
+void FilterManagerImpl::disablePreview()
+{
+  current_editor->invalidate();
+
+  // Redraw the color bar in case the filter modified the palette.
+  if (paletteHasChanged()) {
+    restoreSpritePalette();
+    redrawColorPalette();
   }
 }
 
@@ -395,10 +448,10 @@ void FilterManagerImpl::init(Cel* cel)
     m_target &= ~TARGET_ALPHA_CHANNEL;
 }
 
-void FilterManagerImpl::applyToCel(Transaction& transaction, Cel* cel)
+void FilterManagerImpl::applyToCel(Cel* cel)
 {
   init(cel);
-  apply(transaction);
+  apply();
 }
 
 bool FilterManagerImpl::updateBounds(doc::Mask* mask)
@@ -427,6 +480,12 @@ void FilterManagerImpl::restoreSpritePalette()
   // Restore the original palette to save the undoable "cmd"
   if (m_oldPalette)
     m_site.sprite()->setPalette(m_oldPalette.get(), false);
+}
+
+void FilterManagerImpl::redrawColorPalette()
+{
+  set_current_palette(getNewPalette(), false);
+  ColorBar::instance()->invalidate();
 }
 
 bool FilterManagerImpl::isMaskActive() const

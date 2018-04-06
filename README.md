@@ -1,8 +1,9 @@
 # Aseprite
-*Copyright (C) 2001-2017 David Capello*
+*Copyright (C) 2001-2018 David Capello*
 
 [![Build Status](https://travis-ci.org/aseprite/aseprite.svg)](https://travis-ci.org/aseprite/aseprite)
-[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/aseprite/aseprite?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Discourse Community](https://img.shields.io/badge/discourse-community-brightgreen.svg?style=flat)](https://community.aseprite.org/)
+[![Discord Server](https://discordapp.com/api/guilds/324979738533822464/embed.png)](https://discord.gg/Yb2CeX8)
 
 ## Introduction
 
@@ -36,6 +37,7 @@ If you found a bug or have a new idea/feature for the program,
 You can ask for help in:
 
 * [Aseprite Community](https://community.aseprite.org/)
+* [Aseprite Discord Server](https://discord.gg/Yb2CeX8)
 * Official support: [support@aseprite.org](mailto:support@aseprite.org)
 * Social networks and community-driven places:
   [Twitter](https://twitter.com/aseprite/),

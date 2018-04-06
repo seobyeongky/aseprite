@@ -13,11 +13,14 @@
 #include "app/app_menus.h"
 #include "app/crash/data_recovery.h"
 #include "app/crash/session.h"
+#include "app/i18n/strings.h"
 #include "app/modules/gui.h"
 #include "app/ui/drop_down_button.h"
+#include "app/ui/separator_in_view.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui/workspace.h"
 #include "base/bind.h"
+#include "fmt/format.h"
 #include "ui/alert.h"
 #include "ui/button.h"
 #include "ui/entry.h"
@@ -69,24 +72,30 @@ DataRecoveryView::DataRecoveryView(crash::DataRecovery* dataRecovery)
   , m_openButton("Recover Sprite")
   , m_deleteButton("Delete")
 {
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-  setBgColor(theme->colors.workspace());
-
-  m_openButton.mainButton()->setSizeHint(
-    gfx::Size(std::max(m_openButton.mainButton()->sizeHint().w, 100*guiscale()),
-              m_openButton.mainButton()->sizeHint().h));
-
   m_listBox.setMultiselect(true);
   m_view.setExpansive(true);
   m_view.attachToView(&m_listBox);
-  m_view.setStyle(theme->styles.workspaceView());
 
   HBox* hbox = new HBox;
-  hbox->setBorder(gfx::Border(2, 0, 2, 0)*guiscale());
   hbox->addChild(&m_openButton);
   hbox->addChild(&m_deleteButton);
   addChild(hbox);
   addChild(&m_view);
+
+  InitTheme.connect(
+    [this, hbox]{
+      SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
+
+      m_openButton.mainButton()->resetSizeHint();
+      gfx::Size hint = m_openButton.mainButton()->sizeHint();
+      m_openButton.mainButton()->setSizeHint(
+        gfx::Size(std::max(hint.w, 100*guiscale()), hint.h));
+
+      setBgColor(theme->colors.workspace());
+      m_view.setStyle(theme->styles.workspaceView());
+      hbox->setBorder(gfx::Border(2, 0, 2, 0)*guiscale());
+    });
+  initTheme();
 
   fillList();
   onChangeSelection();
@@ -96,10 +105,6 @@ DataRecoveryView::DataRecoveryView(crash::DataRecovery* dataRecovery)
   m_deleteButton.Click.connect(base::Bind(&DataRecoveryView::onDelete, this));
   m_listBox.Change.connect(base::Bind(&DataRecoveryView::onChangeSelection, this));
   m_listBox.DoubleClickItem.connect(base::Bind(&DataRecoveryView::onOpen, this));
-}
-
-DataRecoveryView::~DataRecoveryView()
-{
 }
 
 void DataRecoveryView::fillList()
@@ -114,9 +119,12 @@ void DataRecoveryView::fillList()
     if (session->isEmpty())
       continue;
 
-    auto sep = new Separator(session->name(), HORIZONTAL);
-    sep->setStyle(SkinTheme::instance()->styles.separatorInView());
-    sep->setBorder(sep->border() + gfx::Border(0, 8, 0, 8)*guiscale());
+    auto sep = new SeparatorInView(session->name(), HORIZONTAL);
+    sep->InitTheme.connect(
+      [sep]{
+        sep->setBorder(sep->border() + gfx::Border(0, 8, 0, 8)*guiscale());
+      });
+    sep->initTheme();
     m_listBox.addChild(sep);
 
     for (auto& backup : session->backups()) {
@@ -218,10 +226,9 @@ void DataRecoveryView::onDelete()
     return;
 
   // Delete one backup
-  if (Alert::show(PACKAGE
-                  "<<Do you really want to delete the selected %d backup(s)?"
-                  "||&Yes||&No",
-                  int(items.size())) != 1)
+  if (Alert::show(
+        fmt::format(Strings::alerts_delete_selected_backups(),
+                    int(items.size()))) != 1)
     return;                     // Cancel
 
   for (auto item : items) {

@@ -7,9 +7,6 @@
 [submodule "third_party/gtest"]
 	path = third_party/gtest
 	url = https://github.com/aseprite/gtest.git
-[submodule "third_party/duktape"]
-	path = third_party/duktape
-	url = https://github.com/aseprite/duktape.git
 [submodule "third_party/libwebp"]
 	path = third_party/libwebp
 	url = https://github.com/aseprite/libwebp.git
@@ -51,3 +48,15 @@
 [submodule "third_party/json11"]
 	path = third_party/json11
 	url = https://github.com/aseprite/json11.git
+[submodule "third_party/benchmark"]
+	path = third_party/benchmark
+	url = https://github.com/aseprite/benchmark.git
+[submodule "third_party/mujs"]
+	path = third_party/mujs
+	url = https://github.com/aseprite/mujs.git
+[submodule "third_party/giflib"]
+	path = third_party/giflib
+	url = https://github.com/aseprite/giflib.git
+[submodule "third_party/fmt"]
+	path = third_party/fmt
+	url = https://github.com/aseprite/fmt.git

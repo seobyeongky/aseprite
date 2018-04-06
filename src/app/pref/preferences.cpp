@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2015  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -15,6 +15,7 @@
 #include "app/tools/ink.h"
 #include "app/tools/tool.h"
 #include "doc/sprite.h"
+#include "she/system.h"
 
 namespace app {
 
@@ -34,6 +35,14 @@ Preferences::Preferences()
   singleton = this;
 
   load();
+
+  // Hide the menu bar depending on:
+  // 1. the native menu bar is available
+  // 2. this is the first run of the program
+  if (she::instance()->menus() &&
+      updater.uuid().empty()) {
+    general.showMenuBar(false);
+  }
 }
 
 Preferences::~Preferences()
@@ -66,6 +75,11 @@ void Preferences::save()
     serializeDocPref(pair.first, pair.second, true);
 
   flush_config_file();
+}
+
+bool Preferences::isSet(OptionBase& opt) const
+{
+  return (get_config_string(opt.section(), opt.id(), nullptr) != nullptr);
 }
 
 ToolPreferences& Preferences::tool(tools::Tool* tool)

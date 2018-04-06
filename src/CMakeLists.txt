@@ -1,8 +1,13 @@
 # Aseprite
-# Copyright (C) 2001-2017  David Capello
+# Copyright (C) 2001-2018  David Capello
 
 ######################################################################
 # Compiler-specific flags
+
+if(UNIX)
+  # All warnings except for switch cases with missing enum items
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-switch")
+endif()
 
 if(MSVC)
   # As Skia is compiled with /GL flag (whole program optimization),
@@ -31,13 +36,6 @@ endif()
 # Use patched version of Allegro 4 (with window resize support).
 if(USE_ALLEG4_BACKEND AND NOT USE_SHARED_ALLEGRO4)
   add_subdirectory(allegro)
-endif()
-
-######################################################################
-# Add C++11 support only for our code (avoid Allegro)
-
-if(UNIX)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-switch -std=gnu++11")
 endif()
 
 ######################################################################
@@ -71,6 +69,13 @@ else()
 endif()
 
 ######################################################################
+# Special developer mode
+
+if(ENABLE_DEVMODE)
+  add_definitions(-DENABLE_DEVMODE)
+endif()
+
+######################################################################
 # Aseprite Libraries (in preferred order to be built)
 
 # Disable observable tests
@@ -95,7 +100,7 @@ add_subdirectory(gen)
 add_subdirectory(gfx)
 add_subdirectory(net)
 add_subdirectory(render)
-add_subdirectory(docio)
+add_subdirectory(dio)
 add_subdirectory(ft)
 add_subdirectory(she)
 add_subdirectory(ui)
@@ -115,6 +120,10 @@ endif()
 
 if(ENABLE_STEAM)
   add_subdirectory(steam)
+endif()
+
+if(WITH_DESKTOP_INTEGRATION)
+  add_subdirectory(desktop)
 endif()
 
 add_subdirectory(app)
@@ -161,14 +170,9 @@ if(WIN32)
     main/settings.manifest)
 endif()
 
-if(UNIX AND NOT APPLE AND USE_ALLEG4_BACKEND)
-  set(x11_resources main/xpm_icon.c)
-endif()
-
 add_executable(aseprite WIN32
   main/main.cpp
-  ${win32_resources}
-  ${x11_resources})
+  ${win32_resources})
 target_link_libraries(aseprite app-lib ${PLATFORM_LIBS})
 add_dependencies(aseprite copy_data)
 
@@ -189,7 +193,6 @@ install(DIRECTORY ../data
 
 if(ENABLE_TESTS)
   include(FindTests)
-
   find_tests(gfx gfx-lib)
   find_tests(doc doc-lib)
   find_tests(render render-lib)
@@ -198,4 +201,9 @@ if(ENABLE_TESTS)
   find_tests(app/file app-lib)
   find_tests(app app-lib)
   find_tests(. app-lib)
+endif()
+
+if(ENABLE_BENCHMARKS)
+  include(FindBenchmarks)
+  find_benchmarks(doc doc-lib)
 endif()

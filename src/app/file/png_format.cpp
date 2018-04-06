@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -13,7 +13,6 @@
 #include "app/file/file.h"
 #include "app/file/file_format.h"
 #include "app/file/format_options.h"
-#include "app/ini_file.h"
 #include "base/file_handle.h"
 #include "doc/doc.h"
 
@@ -27,9 +26,18 @@ namespace app {
 using namespace base;
 
 class PngFormat : public FileFormat {
-  const char* onGetName() const override { return "png"; }
-  const char* onGetExtensions() const override { return "png"; }
-  docio::FileFormat onGetDocioFormat() const override { return docio::FileFormat::PNG_IMAGE; }
+  const char* onGetName() const override {
+    return "png";
+  }
+
+  void onGetExtensions(base::paths& exts) const override {
+    exts.push_back("png");
+  }
+
+  dio::FileFormat onGetDioFormat() const override {
+    return dio::FileFormat::PNG_IMAGE;
+  }
+
   int onGetFlags() const override {
     return
       FILE_SUPPORT_LOAD |
@@ -354,7 +362,7 @@ bool PngFormat::onSave(FileOp* fop)
   int pass, number_passes;
 
   /* open the file */
-  FileHandle handle(open_file_with_exception(fop->filename(), "wb"));
+  FileHandle handle(open_file_with_exception_sync_on_close(fop->filename(), "wb"));
   FILE* fp = handle.get();
 
   /* Create and initialize the png_struct with the desired error handler
@@ -446,6 +454,7 @@ bool PngFormat::onSave(FileOp* fop)
       mask_entry = fop->document()->sprite()->transparentColor();
     }
 
+    bool all_opaque = true;
     int num_trans = pal_size;
     png_bytep trans = (png_bytep)png_malloc(png_ptr, num_trans);
 
@@ -453,9 +462,13 @@ bool PngFormat::onSave(FileOp* fop)
       int alpha = 255;
       fop->sequenceGetAlpha(c, &alpha);
       trans[c] = (c == mask_entry ? 0: alpha);
+      if (alpha < 255)
+        all_opaque = false;
     }
 
-    png_set_tRNS(png_ptr, info_ptr, trans, num_trans, NULL);
+    if (!all_opaque || mask_entry >= 0)
+      png_set_tRNS(png_ptr, info_ptr, trans, num_trans, nullptr);
+
     png_free(png_ptr, trans);
   }
 

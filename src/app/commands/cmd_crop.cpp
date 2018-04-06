@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2015  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -12,8 +12,8 @@
 #include "app/context_access.h"
 #include "app/document_api.h"
 #include "app/modules/gui.h"
-#include "app/ui/color_bar.h"
 #include "app/transaction.h"
+#include "app/ui/color_bar.h"
 #include "app/util/autocrop.h"
 #include "doc/image.h"
 #include "doc/layer.h"
@@ -37,9 +37,7 @@ private:
 };
 
 CropSpriteCommand::CropSpriteCommand()
-  : Command("CropSprite",
-            "Crop Sprite",
-            CmdRecordableFlag)
+  : Command(CommandId::CropSprite(), CmdRecordableFlag)
 {
 }
 
@@ -92,9 +90,7 @@ protected:
 };
 
 AutocropSpriteCommand::AutocropSpriteCommand()
-  : Command("AutocropSprite",
-            "Trim Sprite",
-            CmdRecordableFlag)
+  : Command(CommandId::AutocropSprite(), CmdRecordableFlag)
 {
 }
 

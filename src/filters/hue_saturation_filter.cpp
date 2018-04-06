@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2017  David Capello
+// Copyright (C) 2017-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -16,6 +16,7 @@
 #include "filters/filter_indexed_data.h"
 #include "filters/filter_manager.h"
 #include "gfx/hsl.h"
+#include "gfx/hsv.h"
 #include "gfx/rgb.h"
 
 #include <cmath>
@@ -30,11 +31,17 @@ const char* HueSaturationFilter::getName()
 }
 
 HueSaturationFilter::HueSaturationFilter()
-  : m_h(0.0)
+  : m_mode(Mode::HSL)
+  , m_h(0.0)
   , m_s(0.0)
   , m_l(0.0)
-  , m_a(0)
+  , m_a(0.0)
 {
+}
+
+void HueSaturationFilter::setMode(Mode mode)
+{
+  m_mode = mode;
 }
 
 void HueSaturationFilter::setHue(double h)
@@ -52,7 +59,7 @@ void HueSaturationFilter::setLightness(double l)
   m_l = l;
 }
 
-void HueSaturationFilter::setAlpha(int a)
+void HueSaturationFilter::setAlpha(double a)
 {
   m_a = a;
 }
@@ -93,7 +100,7 @@ void HueSaturationFilter::applyToRgba(FilterManager* filterMgr)
         c = fid->getNewPalette()->getEntry(i);
     }
     else {
-      applyHslFilterToRgb(target, c);
+      applyFilterToRgb(target, c);
     }
 
     *(dst_address++) = c;
@@ -121,7 +128,7 @@ void HueSaturationFilter::applyToGrayscale(FilterManager* filterMgr)
     {
       gfx::Hsl hsl(gfx::Rgb(k, k, k));
 
-      double l = hsl.lightness() + m_l;
+      double l = hsl.lightness()*(1.0+m_l);
       l = MID(0.0, l, 1.0);
 
       hsl.lightness(l);
@@ -129,8 +136,10 @@ void HueSaturationFilter::applyToGrayscale(FilterManager* filterMgr)
 
       if (target & TARGET_GRAY_CHANNEL) k = rgb.red();
 
-      if (a && (target & TARGET_ALPHA_CHANNEL))
-        a = MID(0, a+m_a, 255);
+      if (a && (target & TARGET_ALPHA_CHANNEL)) {
+        a = a*(1.0+m_a);
+        a = MID(0, a, 255);
+      }
     }
 
     *(dst_address++) = graya(k, a);
@@ -170,7 +179,7 @@ void HueSaturationFilter::applyToIndexed(FilterManager* filterMgr)
     }
 
     color_t c = pal->getEntry(*(src_address++));
-    applyHslFilterToRgb(target, c);
+    applyFilterToRgb(target, c);
     *(dst_address++) = rgbmap->mapColor(rgba_getr(c),
                                         rgba_getg(c),
                                         rgba_getb(c),
@@ -193,44 +202,64 @@ void HueSaturationFilter::applyToPalette(FilterManager* filterMgr)
     }
 
     color_t c = pal->getEntry(i);
-    applyHslFilterToRgb(target, c);
+    applyFilterToRgb(target, c);
     newPal->setEntry(i, c);
     ++i;
   }
 }
 
-void HueSaturationFilter::applyHslFilterToRgb(
-  const Target target, doc::color_t& c)
+template<class T,
+         double (T::*get_lightness)() const,
+         void (T::*set_lightness)(double)>
+void HueSaturationFilter::applyFilterToRgbT(const Target target, doc::color_t& c)
 {
   int r = rgba_getr(c);
   int g = rgba_getg(c);
   int b = rgba_getb(c);
   int a = rgba_geta(c);
 
-  gfx::Hsl hsl(gfx::Rgb(r, g, b));
+  T hsl(gfx::Rgb(r, g, b));
 
   double h = hsl.hue() + m_h;
   while (h < 0.0) h += 360.0;
   h = std::fmod(h, 360.0);
 
-  double s = hsl.saturation() + m_s;
+  double s = hsl.saturation()*(1.0+m_s);
   s = MID(0.0, s, 1.0);
 
-  double l = hsl.lightness() + m_l;
+  double l = (hsl.*get_lightness)()*(1.0+m_l);
   l = MID(0.0, l, 1.0);
 
   hsl.hue(h);
   hsl.saturation(s);
-  hsl.lightness(l);
+  (hsl.*set_lightness)(l);
   gfx::Rgb rgb(hsl);
 
   if (target & TARGET_RED_CHANNEL  ) r = rgb.red();
   if (target & TARGET_GREEN_CHANNEL) g = rgb.green();
   if (target & TARGET_BLUE_CHANNEL ) b = rgb.blue();
-  if (a && (target & TARGET_ALPHA_CHANNEL))
-    a = MID(0, a+m_a, 255);
+  if (a && (target & TARGET_ALPHA_CHANNEL)) {
+    a = a*(1.0+m_a);
+    a = MID(0, a, 255);
+  }
 
   c = rgba(r, g, b, a);
+}
+
+void HueSaturationFilter::applyFilterToRgb(const Target target, doc::color_t& color)
+{
+  switch (m_mode) {
+    case Mode::HSL:
+      applyFilterToRgbT<gfx::Hsl,
+                        &gfx::Hsl::lightness,
+                        &gfx::Hsl::lightness>(target, color);
+      break;
+    case Mode::HSV:
+      applyFilterToRgbT<gfx::Hsv,
+                        &gfx::Hsv::value,
+                        &gfx::Hsv::value>(target, color);
+      break;
+  }
 }
 
 } // namespace filters

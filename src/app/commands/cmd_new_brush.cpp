@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -55,9 +55,7 @@ private:
 };
 
 NewBrushCommand::NewBrushCommand()
-  : Command("NewBrush",
-            "New Brush",
-            CmdUIOnlyFlag)
+  : Command(CommandId::NewBrush(), CmdUIOnlyFlag)
 {
 }
 
@@ -98,7 +96,7 @@ void NewBrushCommand::onExecute(Context* context)
 
     // Deselect mask
     Command* cmd =
-      CommandsModule::instance()->getCommandByName(CommandId::DeselectMask);
+      Commands::instance()->byId(CommandId::DeselectMask());
     UIContext::instance()->executeCommand(cmd);
   }
 }
@@ -168,7 +166,7 @@ void NewBrushCommand::createBrush(const Site& site, const Mask* mask)
   params.set("change", "custom");
   params.set("slot", base::convert_to<std::string>(slot).c_str());
   Key* key = KeyboardShortcuts::instance()->command(
-    CommandId::ChangeBrush, params);
+    CommandId::ChangeBrush(), params);
   if (key && !key->accels().empty()) {
     std::string tooltip;
     tooltip += "Shortcut: ";

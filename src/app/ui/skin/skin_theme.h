@@ -48,6 +48,8 @@ namespace app {
       ~SkinTheme();
 
       const std::string& path() { return m_path; }
+      int preferredScreenScaling() { return m_preferredScreenScaling; }
+      int preferredUIScaling() { return m_preferredUIScaling; }
 
       she::Font* getDefaultFont() const override { return m_defaultFont; }
       she::Font* getWidgetFont(const ui::Widget* widget) const override;
@@ -70,6 +72,7 @@ namespace app {
 
       int get_button_selected_offset() const { return 0; } // TODO Configurable in xml
 
+      SkinPartPtr getToolPart(const char* toolId) const;
       she::Surface* getToolIcon(const char* toolId) const;
 
       // Helper functions to draw bounds/hlines with sheet parts
@@ -126,7 +129,7 @@ namespace app {
       void drawEntryCaret(ui::Graphics* g, ui::Entry* widget, int x, int y);
 
     protected:
-      void onRegenerate() override;
+      void onRegenerateTheme() override;
 
     private:
       void loadFontData();
@@ -155,6 +158,8 @@ namespace app {
       std::map<std::string, she::Font*> m_themeFonts;
       she::Font* m_defaultFont;
       she::Font* m_miniFont;
+      int m_preferredScreenScaling;
+      int m_preferredUIScaling;
     };
 
   } // namespace skin

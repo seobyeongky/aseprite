@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -26,6 +26,7 @@
 #include "app/xml_exception.h"
 #include "base/bind.h"
 #include "base/fs.h"
+#include "base/log.h"
 #include "base/shared_ptr.h"
 #include "base/string.h"
 #include "gfx/border.h"
@@ -92,6 +93,12 @@ static FontData* load_font(std::map<std::string, FontData*>& fonts,
     throw base::Exception("No \"name\" or \"font\" attributes specified on <font>");
 
   std::string name(nameStr);
+
+  // Use cached font data
+  auto it = fonts.find(name);
+  if (it != fonts.end())
+    return it->second;
+
   LOG(VERBOSE) << "THEME: Loading font '" << name << "'\n";
 
   const char* typeStr = xmlFont->Attribute("type");
@@ -100,16 +107,14 @@ static FontData* load_font(std::map<std::string, FontData*>& fonts,
                           xmlFilename.c_str());
 
   std::string type(typeStr);
+  std::string xmlDir(base::get_file_path(xmlFilename));
   base::UniquePtr<FontData> font(nullptr);
 
   if (type == "spritesheet") {
     const char* fileStr = xmlFont->Attribute("file");
     if (fileStr) {
       font.reset(new FontData(she::FontType::kSpriteSheet));
-      font->setFilename(
-        base::join_path(
-          base::get_file_path(xmlFilename),
-          fileStr));
+      font->setFilename(base::join_path(xmlDir, fileStr));
     }
   }
   else if (type == "truetype") {
@@ -131,9 +136,9 @@ static FontData* load_font(std::map<std::string, FontData*>& fonts,
 
     std::string fontFilename;
     if (platformFileStr)
-      fontFilename = app::find_font(platformFileStr);
+      fontFilename = app::find_font(xmlDir, platformFileStr);
     if (fileStr && fontFilename.empty())
-      fontFilename = app::find_font(fileStr);
+      fontFilename = app::find_font(xmlDir, fileStr);
 
     // The filename can be empty if the font was not found, anyway we
     // want to keep the font information (e.g. to use the fallback
@@ -184,13 +189,15 @@ SkinTheme::SkinTheme()
   , m_standardCursors(ui::kCursorTypes, nullptr)
   , m_defaultFont(nullptr)
   , m_miniFont(nullptr)
+  , m_preferredScreenScaling(-1)
+  , m_preferredUIScaling(-1)
 {
 }
 
 SkinTheme::~SkinTheme()
 {
   // Delete all cursors.
-  for (auto it : m_cursors)
+  for (auto& it : m_cursors)
     delete it.second;           // Delete cursor
 
   if (m_sheet)
@@ -199,11 +206,12 @@ SkinTheme::~SkinTheme()
   m_parts_by_id.clear();
 
   // Destroy fonts
-  for (auto kv : m_fonts)
+  for (auto& kv : m_fonts)
     delete kv.second;          // Delete all FontDatas
+  m_fonts.clear();
 }
 
-void SkinTheme::onRegenerate()
+void SkinTheme::onRegenerateTheme()
 {
   Preferences& pref = Preferences::instance();
 
@@ -218,6 +226,9 @@ void SkinTheme::onRegenerate()
     }
     catch (const std::exception& e) {
       LOG("THEME: Error loading user-theme: %s\n", e.what());
+
+      // Load default theme again
+      loadAll(pref.theme.selected.defaultValue());
 
       if (ui::get_theme())
         Console::showException(e);
@@ -271,17 +282,31 @@ void SkinTheme::loadSheet()
 {
   // Load the skin sheet
   std::string sheet_filename(base::join_path(m_path, "sheet.png"));
+  she::Surface* newSheet = nullptr;
   try {
-    if (m_sheet) {
-      m_sheet->dispose();
-      m_sheet = nullptr;
-    }
-    m_sheet = she::instance()->loadRgbaSurface(sheet_filename.c_str());
-    if (m_sheet)
-      m_sheet->applyScale(guiscale());
+    newSheet = she::instance()->loadRgbaSurface(sheet_filename.c_str());
   }
   catch (...) {
     throw base::Exception("Error loading %s file", sheet_filename.c_str());
+  }
+
+  // Replace the sprite sheet
+  if (m_sheet) {
+    m_sheet->dispose();
+    m_sheet = nullptr;
+  }
+  m_sheet = newSheet;
+  if (m_sheet)
+    m_sheet->applyScale(guiscale());
+
+  // Reset sprite sheet and font of all layer styles (to avoid
+  // dangling pointers to she::Surface or she::Font).
+  for (auto& it : m_styles) {
+    for (auto& layer : it.second->layers()) {
+      layer.setIcon(nullptr);
+      layer.setSpriteSheet(nullptr);
+    }
+    it.second->setFont(nullptr);
   }
 }
 
@@ -294,6 +319,22 @@ void SkinTheme::loadXml()
 
   XmlDocumentRef doc = open_xml(xml_filename);
   TiXmlHandle handle(doc.get());
+
+  // Load Preferred scaling
+  m_preferredScreenScaling = -1;
+  m_preferredUIScaling = -1;
+  {
+    TiXmlElement* xmlTheme = handle
+      .FirstChild("theme").ToElement();
+    if (xmlTheme) {
+      const char* screenScaling = xmlTheme->Attribute("screenscaling");
+      const char* uiScaling = xmlTheme->Attribute("uiscaling");
+      if (screenScaling)
+        m_preferredScreenScaling = std::strtol(screenScaling, nullptr, 10);
+      if (uiScaling)
+        m_preferredUIScaling = std::strtol(uiScaling, nullptr, 10);
+    }
+  }
 
   // Load fonts
   {
@@ -453,6 +494,10 @@ void SkinTheme::loadXml()
       .FirstChild("theme")
       .FirstChild("styles")
       .FirstChild("style").ToElement();
+
+    if (!xmlStyle)              // Without styles?
+      throw base::Exception("There are no styles");
+
     while (xmlStyle) {
       const char* style_id = xmlStyle->Attribute("id");
       if (!style_id) {
@@ -468,11 +513,11 @@ void SkinTheme::loadXml()
       ui::Style* style = m_styles[style_id];
       if (!style) {
         m_styles[style_id] = style = new ui::Style(base);
-        style->setId(style_id);
       }
       else {
         *style = ui::Style(base);
       }
+      style->setId(style_id);
 
       // Margin
       {
@@ -657,16 +702,19 @@ she::Surface* SkinTheme::sliceSheet(she::Surface* sur, const gfx::Rect& bounds)
   if (sur && (sur->width() != bounds.w ||
               sur->height() != bounds.h)) {
     sur->dispose();
-    sur = NULL;
+    sur = nullptr;
   }
 
-  if (!sur)
-    sur = she::instance()->createRgbaSurface(bounds.w, bounds.h);
+  if (!bounds.isEmpty()) {
+    if (!sur)
+      sur = she::instance()->createRgbaSurface(bounds.w, bounds.h);
 
-  {
     she::SurfaceLock lockSrc(m_sheet);
     she::SurfaceLock lockDst(sur);
     m_sheet->blitTo(sur, bounds.x, bounds.y, 0, 0, bounds.w, bounds.h);
+  }
+  else {
+    ASSERT(!sur);
   }
 
   return sur;
@@ -754,6 +802,7 @@ void SkinTheme::initWidget(Widget* widget)
     case kComboBoxWidget: {
       ComboBox* combobox = static_cast<ComboBox*>(widget);
       Button* button = combobox->getButtonWidget();
+      combobox->setChildSpacing(0);
       button->setStyle(styles.comboboxButton());
       break;
     }
@@ -783,8 +832,10 @@ void SkinTheme::initWidget(Widget* widget)
     case kSeparatorWidget:
       // Horizontal bar
       if (widget->align() & HORIZONTAL) {
-        if (dynamic_cast<MenuSeparator*>(widget))
+        if (dynamic_cast<MenuSeparator*>(widget)) {
           widget->setStyle(styles.menuSeparator());
+          BORDER(2 * scale);
+        }
         else
           widget->setStyle(styles.horizontalSeparator());
       }
@@ -945,7 +996,7 @@ public:
         bg = colors.selected();
       else
         bg = colors.disabled();
-      fg = colors.background();
+      fg = colors.selectedText();
     }
 
     // Disabled
@@ -1334,8 +1385,9 @@ gfx::Color SkinTheme::getWidgetBgColor(Widget* widget)
   gfx::Color c = widget->bgColor();
   bool decorative = widget->isDecorative();
 
-  if (!is_transparent(c) || widget->type() == kWindowWidget)
-    return c;
+  if (!is_transparent(c) ||
+      widget->type() == kWindowWidget)
+    return (widget->isTransparent() ? gfx::ColorNone: c);
   else if (decorative)
     return colors.selected();
   else
@@ -1427,9 +1479,14 @@ void SkinTheme::drawEntryCaret(ui::Graphics* g, Entry* widget, int x, int y)
     g->drawVLine(color, u, y+textHeight/2-caretSize.h/2, caretSize.h);
 }
 
+SkinPartPtr SkinTheme::getToolPart(const char* toolId) const
+{
+  return getPartById(std::string("tool_") + toolId);
+}
+
 she::Surface* SkinTheme::getToolIcon(const char* toolId) const
 {
-  SkinPartPtr part = getPartById(std::string("tool_") + toolId);
+  SkinPartPtr part = getToolPart(toolId);
   if (part)
     return part->bitmap(0);
   else

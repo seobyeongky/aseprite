@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2015  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -29,6 +29,7 @@ public:
   Command* clone() const override { return new CancelCommand(*this); }
 
 protected:
+  bool onNeedsParams() const override { return true; }
   void onLoadParams(const Params& params) override;
   void onExecute(Context* context) override;
 
@@ -37,9 +38,7 @@ private:
 };
 
 CancelCommand::CancelCommand()
-  : Command("Cancel",
-            "Cancel Current Operation",
-            CmdUIOnlyFlag)
+  : Command(CommandId::Cancel(), CmdUIOnlyFlag)
   , m_type(NoOp)
 {
 }
@@ -63,7 +62,8 @@ void CancelCommand::onExecute(Context* context)
       // TODO should the ContextBar be a InputChainElement to intercept onCancel()?
       // Discard brush
       {
-        Command* discardBrush = CommandsModule::instance()->getCommandByName(CommandId::DiscardBrush);
+        Command* discardBrush = Commands::instance()->byId(
+          CommandId::DiscardBrush());
         context->executeCommand(discardBrush);
       }
 

@@ -37,6 +37,16 @@ namespace  {
 #define blend_difference(b, s)    (ABS((b) - (s)))
 #define blend_exclusion(b, s, t)  ((t) = MUL_UN8((b), (s), (t)), ((b) + (s) - 2*(t)))
 
+inline uint32_t blend_divide(uint32_t b, uint32_t s)
+{
+  if (b == 0)
+    return 0;
+  else if (b >= s)
+    return 255;
+  else
+    return DIV_UN8(b, s); // return b / s
+}
+
 inline uint32_t blend_color_dodge(uint32_t b, uint32_t s)
 {
   if (b == 0)
@@ -169,58 +179,32 @@ color_t rgba_blender_normal(color_t backdrop, color_t src, int opacity)
     return backdrop;
   }
 
-  int Br, Bg, Bb, Ba;
-  int Sr, Sg, Sb, Sa;
-  int Rr, Rg, Rb, Ra;
+  const int Br = rgba_getr(backdrop);
+  const int Bg = rgba_getg(backdrop);
+  const int Bb = rgba_getb(backdrop);
+  const int Ba = rgba_geta(backdrop);
 
-  Br = rgba_getr(backdrop);
-  Bg = rgba_getg(backdrop);
-  Bb = rgba_getb(backdrop);
-  Ba = rgba_geta(backdrop);
-
-  Sr = rgba_getr(src);
-  Sg = rgba_getg(src);
-  Sb = rgba_getb(src);
-  Sa = rgba_geta(src);
+  const int Sr = rgba_getr(src);
+  const int Sg = rgba_getg(src);
+  const int Sb = rgba_getb(src);
+  int Sa = rgba_geta(src);
   Sa = MUL_UN8(Sa, opacity, t);
 
-  Ra = Ba + Sa - MUL_UN8(Ba, Sa, t);
-  Rr = Br + (Sr-Br) * Sa / Ra;
-  Rg = Bg + (Sg-Bg) * Sa / Ra;
-  Rb = Bb + (Sb-Bb) * Sa / Ra;
+  // Ra = Sa + Ba*(1-Sa)
+  //    = Sa + Ba - Ba*Sa
+  const int Ra = Sa + Ba - MUL_UN8(Ba, Sa, t);
 
-  return rgba(Rr, Rg, Rb, Ra);
-}
-
-color_t rgba_blender_normal(color_t backdrop, color_t src)
-{
-  int t;
-
-  if ((backdrop & rgba_a_mask) == 0) {
-    return src;
-  }
-  else if ((src & rgba_a_mask) == 0) {
-    return backdrop;
-  }
-
-  int Br, Bg, Bb, Ba;
-  int Sr, Sg, Sb, Sa;
-  int Rr, Rg, Rb, Ra;
-
-  Br = rgba_getr(backdrop);
-  Bg = rgba_getg(backdrop);
-  Bb = rgba_getb(backdrop);
-  Ba = rgba_geta(backdrop);
-
-  Sr = rgba_getr(src);
-  Sg = rgba_getg(src);
-  Sb = rgba_getb(src);
-  Sa = rgba_geta(src);
-
-  Ra = Ba + Sa - MUL_UN8(Ba, Sa, t);
-  Rr = Br + (Sr-Br) * Sa / Ra;
-  Rg = Bg + (Sg-Bg) * Sa / Ra;
-  Rb = Bb + (Sb-Bb) * Sa / Ra;
+  // Ra = Sa + Ba*(1-Sa)
+  // Ba = (Ra-Sa) / (1-Sa)
+  // Rc = (Sc*Sa + Bc*Ba*(1-Sa)) / Ra                Replacing Ba with (Ra-Sa) / (1-Sa)...
+  //    = (Sc*Sa + Bc*(Ra-Sa)/(1-Sa)*(1-Sa)) / Ra
+  //    = (Sc*Sa + Bc*(Ra-Sa)) / Ra
+  //    = Sc*Sa/Ra + Bc*Ra/Ra - Bc*Sa/Ra
+  //    = Sc*Sa/Ra + Bc - Bc*Sa/Ra
+  //    = Bc + (Sc-Bc)*Sa/Ra
+  const int Rr = Br + (Sr-Br) * Sa / Ra;
+  const int Rg = Bg + (Sg-Bg) * Sa / Ra;
+  const int Rb = Bb + (Sb-Bb) * Sa / Ra;
 
   return rgba(Rr, Rg, Rb, Ra);
 }
@@ -458,6 +442,33 @@ color_t rgba_blender_hsl_luminosity(color_t backdrop, color_t src, int opacity)
   return rgba_blender_normal(backdrop, src, opacity);
 }
 
+color_t rgba_blender_addition(color_t backdrop, color_t src, int opacity)
+{
+  int r = rgba_getr(backdrop) + rgba_getr(src);
+  int g = rgba_getg(backdrop) + rgba_getg(src);
+  int b = rgba_getb(backdrop) + rgba_getb(src);
+  src = rgba(MIN(r, 255), MIN(g, 255), MIN(b, 255), 0) | (src & rgba_a_mask);
+  return rgba_blender_normal(backdrop, src, opacity);
+}
+
+color_t rgba_blender_subtract(color_t backdrop, color_t src, int opacity)
+{
+  int r = rgba_getr(backdrop) - rgba_getr(src);
+  int g = rgba_getg(backdrop) - rgba_getg(src);
+  int b = rgba_getb(backdrop) - rgba_getb(src);
+  src = rgba(MAX(r, 0), MAX(g, 0), MAX(b, 0), 0) | (src & rgba_a_mask);
+  return rgba_blender_normal(backdrop, src, opacity);
+}
+
+color_t rgba_blender_divide(color_t backdrop, color_t src, int opacity)
+{
+  int r = blend_divide(rgba_getr(backdrop), rgba_getr(src));
+  int g = blend_divide(rgba_getg(backdrop), rgba_getg(src));
+  int b = blend_divide(rgba_getb(backdrop), rgba_getb(src));
+  src = rgba(r, g, b, 0) | (src & rgba_a_mask);
+  return rgba_blender_normal(backdrop, src, opacity);
+}
+
 //////////////////////////////////////////////////////////////////////
 // GRAY blenders
 
@@ -528,32 +539,6 @@ color_t graya_blender_normal(color_t backdrop, color_t src, int opacity)
   Sg = graya_getv(src);
   Sa = graya_geta(src);
   Sa = MUL_UN8(Sa, opacity, t);
-
-  Ra = Ba + Sa - MUL_UN8(Ba, Sa, t);
-  Rg = Bg + (Sg-Bg) * Sa / Ra;
-
-  return graya(Rg, Ra);
-}
-
-color_t graya_blender_normal(color_t backdrop, color_t src)
-{
-  int t;
-
-  if ((backdrop & graya_a_mask) == 0) {
-    return src;
-  }
-  else if ((src & graya_a_mask) == 0)
-    return backdrop;
-
-  int Bg, Ba;
-  int Sg, Sa;
-  int Rg, Ra;
-
-  Bg = graya_getv(backdrop);
-  Ba = graya_geta(backdrop);
-
-  Sg = graya_getv(src);
-  Sa = graya_geta(src);
 
   Ra = Ba + Sa - MUL_UN8(Ba, Sa, t);
   Rg = Bg + (Sg-Bg) * Sa / Ra;
@@ -643,6 +628,27 @@ color_t graya_blender_exclusion(color_t backdrop, color_t src, int opacity)
   return graya_blender_normal(backdrop, src, opacity);
 }
 
+color_t graya_blender_addition(color_t backdrop, color_t src, int opacity)
+{
+  int v = graya_getv(backdrop) + graya_getv(src);
+  src = graya(MIN(v, 255), 0) | (src & graya_a_mask);
+  return graya_blender_normal(backdrop, src, opacity);
+}
+
+color_t graya_blender_subtract(color_t backdrop, color_t src, int opacity)
+{
+  int v = graya_getv(backdrop) - graya_getv(src);
+  src = graya(MAX(v, 0), 0) | (src & graya_a_mask);
+  return graya_blender_normal(backdrop, src, opacity);
+}
+
+color_t graya_blender_divide(color_t backdrop, color_t src, int opacity)
+{
+  int v = blend_divide(graya_getv(backdrop), graya_getv(src));
+  src = graya(v, 0) | (src & graya_a_mask);
+  return graya_blender_normal(backdrop, src, opacity);
+}
+
 //////////////////////////////////////////////////////////////////////
 // indexed
 
@@ -679,6 +685,9 @@ BlendFunc get_rgba_blender(BlendMode blendmode)
     case BlendMode::HSL_SATURATION: return rgba_blender_hsl_saturation;
     case BlendMode::HSL_COLOR:      return rgba_blender_hsl_color;
     case BlendMode::HSL_LUMINOSITY: return rgba_blender_hsl_luminosity;
+    case BlendMode::ADDITION:       return rgba_blender_addition;
+    case BlendMode::SUBTRACT:       return rgba_blender_subtract;
+    case BlendMode::DIVIDE:         return rgba_blender_divide;
   }
   ASSERT(false);
   return rgba_blender_src;
@@ -709,6 +718,9 @@ BlendFunc get_graya_blender(BlendMode blendmode)
     case BlendMode::HSL_SATURATION: return graya_blender_normal;
     case BlendMode::HSL_COLOR:      return graya_blender_normal;
     case BlendMode::HSL_LUMINOSITY: return graya_blender_normal;
+    case BlendMode::ADDITION:       return graya_blender_addition;
+    case BlendMode::SUBTRACT:       return graya_blender_subtract;
+    case BlendMode::DIVIDE:         return graya_blender_divide;
   }
   ASSERT(false);
   return graya_blender_src;

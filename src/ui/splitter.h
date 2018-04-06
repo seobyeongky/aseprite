@@ -24,10 +24,13 @@ namespace ui {
   protected:
     // Events
     bool onProcessMessage(Message* msg) override;
+    void onInitTheme(InitThemeEvent& ev) override;
     void onResize(ResizeEvent& ev) override;
     void onSizeHint(SizeHintEvent& ev) override;
     void onLoadLayout(LoadLayoutEvent& ev) override;
     void onSaveLayout(SaveLayoutEvent& ev) override;
+
+    virtual void onPositionChange();
 
   private:
     Widget* panel1() const;
@@ -36,6 +39,7 @@ namespace ui {
 
     Type m_type;
     double m_pos;
+    int m_guiscale;
   };
 
 } // namespace ui

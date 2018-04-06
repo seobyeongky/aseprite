@@ -1,5 +1,5 @@
 // Aseprite UI Library
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -11,16 +11,14 @@
 #include "ui/timer.h"
 
 #include "base/time.h"
+#include "obs/safe_list.h"
 #include "ui/manager.h"
 #include "ui/message.h"
 #include "ui/widget.h"
 
-#include <algorithm>
-#include <list>
-
 namespace ui {
 
-typedef std::list<Timer*> Timers;
+typedef obs::safe_list<Timer> Timers;
 
 static Timers timers; // Registered timers
 
@@ -37,12 +35,10 @@ Timer::Timer(int interval, Widget* owner)
 
 Timer::~Timer()
 {
-  Timers::iterator it = std::find(timers.begin(), timers.end(), this);
-  ASSERT(it != timers.end());
-  timers.erase(it);
+  timers.erase(this);
 
-  // Remove messages of this timer in the queue
-  Manager::getDefault()->removeMessagesForTimer(this);
+  // Stop the timer and remove it from the message queue.
+  stop();
 }
 
 void Timer::start()
@@ -54,6 +50,12 @@ void Timer::start()
 void Timer::stop()
 {
   m_running = false;
+
+  // Remove messages of this timer in the queue. The expected behavior
+  // is that when we stop a timer, we'll not receive more messages
+  // about it (even if there are enqueued messages waiting in the
+  // message queue).
+  Manager::getDefault()->removeMessagesForTimer(this);
 }
 
 void Timer::tick()
@@ -78,8 +80,7 @@ void Timer::pollTimers()
   if (!timers.empty()) {
     base::tick_t t = base::current_tick();
 
-    for (Timers::iterator it=timers.begin(), end=timers.end(); it != end; ++it) {
-      Timer* timer = *it;
+    for (auto timer : timers) {
       if (timer && timer->isRunning()) {
         int64_t count = ((t - timer->m_lastTick) / timer->m_interval);
         if (count > 0) {

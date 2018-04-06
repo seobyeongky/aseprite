@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2017  David Capello
+// Copyright (C) 2017-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -14,12 +14,16 @@
 
 namespace app {
 
-std::string find_font(const std::string& filename)
+std::string find_font(const std::string& firstDir,
+                      const std::string& filename)
 {
-  std::vector<std::string> fontDirs;
+  std::string fn = base::join_path(firstDir, filename);
+  if (base::is_file(fn))
+    return fn;
+
+  base::paths fontDirs;
   get_font_dirs(fontDirs);
 
-  std::string fn;
   for (const std::string& dir : fontDirs) {
     fn = base::join_path(dir, filename);
     if (base::is_file(fn))

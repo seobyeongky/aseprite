@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -14,9 +14,11 @@
 #include "app/context.h"
 #include "app/file/palette_file.h"
 #include "app/file_selector.h"
+#include "app/i18n/strings.h"
 #include "app/modules/palettes.h"
 #include "base/fs.h"
 #include "doc/palette.h"
+#include "fmt/format.h"
 #include "ui/alert.h"
 
 namespace app {
@@ -37,9 +39,7 @@ private:
 };
 
 SavePaletteCommand::SavePaletteCommand()
-  : Command("SavePalette",
-            "Save Palette",
-            CmdRecordableFlag)
+  : Command(CommandId::SavePalette(), CmdRecordableFlag)
 {
 }
 
@@ -57,18 +57,18 @@ void SavePaletteCommand::onExecute(Context* context)
     filename = get_preset_palette_filename(m_preset, ".ase");
   }
   else {
-    std::string exts = get_writable_palette_extensions();
-    FileSelectorFiles selFilename;
-    if (!app::show_file_selector("Save Palette", "", exts,
-                                 FileSelectorType::Save,
-                                 selFilename))
+    base::paths exts = get_writable_palette_extensions();
+    base::paths selFilename;
+    if (!app::show_file_selector(
+          "Save Palette", "", exts,
+          FileSelectorType::Save, selFilename))
       return;
 
     filename = selFilename.front();
   }
 
   if (!save_palette(filename.c_str(), palette, 16)) // TODO 16 should be configurable
-    Alert::show("Error<<Saving palette file||&Close");
+    ui::Alert::show(fmt::format(Strings::alerts_error_saving_file(), filename));
 
   if (m_preset == get_default_palette_preset_name()) {
     set_default_palette(palette);

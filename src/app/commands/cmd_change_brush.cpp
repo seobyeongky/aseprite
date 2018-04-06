@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2017  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -14,12 +14,14 @@
 #include "app/commands/command.h"
 #include "app/commands/params.h"
 #include "app/context.h"
+#include "app/i18n/strings.h"
 #include "app/pref/preferences.h"
 #include "app/tools/active_tool.h"
 #include "app/tools/tool.h"
 #include "app/ui/context_bar.h"
 #include "base/convert_to.h"
 #include "doc/brush.h"
+#include "fmt/format.h"
 
 namespace app {
 
@@ -37,6 +39,7 @@ public:
   ChangeBrushCommand();
 
 protected:
+  bool onNeedsParams() const override { return true; }
   void onLoadParams(const Params& params) override;
   void onExecute(Context* context) override;
   std::string onGetFriendlyName() const override;
@@ -47,9 +50,7 @@ private:
 };
 
 ChangeBrushCommand::ChangeBrushCommand()
-  : Command("ChangeBrush",
-            "Change Brush",
-            CmdUIOnlyFlag)
+  : Command(CommandId::ChangeBrush(), CmdUIOnlyFlag)
 {
   m_change = None;
   m_slot = 0;
@@ -74,7 +75,7 @@ void ChangeBrushCommand::onExecute(Context* context)
 {
   // Change the brush of the selected tool in the toolbar (not the
   // active tool which might be different, e.g. the quick tool)
-  tools::Tool* tool = App::instance()->activeToolManager()->selectedTool();
+  tools::Tool* tool = App::instance()->activeToolManager()->activeTool();
   ToolPreferences::Brush& brush =
     Preferences::instance().tool(tool).brush;
 
@@ -107,30 +108,18 @@ void ChangeBrushCommand::onExecute(Context* context)
 
 std::string ChangeBrushCommand::onGetFriendlyName() const
 {
-  std::string text = "Brush";
-
+  std::string change;
   switch (m_change) {
-    case None:
-      break;
-    case IncrementSize:
-      text += ": Increment Size";
-      break;
-    case DecrementSize:
-      text += ": Decrement Size";
-      break;
-    case IncrementAngle:
-      text += ": Increment Angle";
-      break;
-    case DecrementAngle:
-      text += ": Decrement Angle";
-      break;
+    case None: break;
+    case IncrementSize: change = Strings::commands_ChangeBrush_IncrementSize(); break;
+    case DecrementSize: change = Strings::commands_ChangeBrush_DecrementSize(); break;
+    case IncrementAngle: change = Strings::commands_ChangeBrush_IncrementAngle(); break;
+    case DecrementAngle: change = Strings::commands_ChangeBrush_DecrementAngle(); break;
     case CustomBrush:
-      text += ": Custom Brush #";
-      text += base::convert_to<std::string>(m_slot);
+      change = fmt::format(Strings::commands_ChangeBrush_CustomBrush(), m_slot);
       break;
   }
-
-  return text;
+  return fmt::format(getBaseFriendlyName(), change);
 }
 
 Command* CommandFactory::createChangeBrushCommand()

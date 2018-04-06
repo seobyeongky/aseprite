@@ -1,5 +1,5 @@
 // Aseprite UI Library
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
@@ -17,6 +17,7 @@
 namespace ui {
 
   class Box;
+  class CheckBox;
   class Slider;
 
   class Alert;
@@ -29,10 +30,12 @@ namespace ui {
     void addProgress();
     void setProgress(double progress);
 
+    CheckBox* addCheckBox(const std::string& text);
+
     int show();
 
-    static AlertPtr create(const char* format, ...);
-    static int show(const char* format, ...);
+    static AlertPtr create(const std::string& msg);
+    static int show(const std::string& msg);
 
   private:
     void processString(std::string& buf);

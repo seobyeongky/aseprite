@@ -1,8 +1,10 @@
 // SHE library
-// Copyright (C) 2012-2017  David Capello
+// Copyright (C) 2012-2018  David Capello
 //
 // This file is released under the terms of the MIT license.
 // Read LICENSE.txt for more information.
+
+//#define DEBUG_UPDATE_RECTS
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -25,7 +27,9 @@
 
 #if SK_SUPPORT_GPU
 
+  #include "GrBackendSurface.h"
   #include "GrContext.h"
+  #include "gl/GrGLDefines.h"
   #include "gl/GrGLInterface.h"
   #include "she/gl/gl_context_cgl.h"
   #include "she/skia/skia_surface.h"
@@ -166,14 +170,6 @@ public:
   }
 
   void onDrawRect(const gfx::Rect& rect) override {
-#if SK_SUPPORT_GPU
-    // Flush operations to the SkCanvas
-    if (m_display->isInitialized()) {
-      SkiaSurface* surface = static_cast<SkiaSurface*>(m_display->getSurface());
-      surface->flush();
-    }
-#endif
-
     switch (m_backend) {
 
       case Backend::NONE:
@@ -182,6 +178,7 @@ public:
 
 #if SK_SUPPORT_GPU
       case Backend::GL:
+        // TODO
         if (m_nsGL)
           [m_nsGL flushBuffer];
         break;
@@ -201,7 +198,7 @@ private:
   bool attachGL() {
     if (!m_glCtx) {
       try {
-        SkAutoTDelete<GLContext> ctx(new GLContextCGL);
+        base::UniquePtr<GLContext> ctx(new GLContextCGL);
         if (!ctx->createGLContext())
           throw std::runtime_error("Cannot create CGL context");
 
@@ -212,7 +209,9 @@ private:
           return false;
         }
 
-        m_glCtx.reset(ctx);
+        m_glCtx.reset(ctx.get());
+        ctx.release();
+
         m_grCtx.reset(GrContext::Create(kOpenGL_GrBackend,
                                         (GrBackendContext)m_glInterfaces.get()));
 
@@ -242,32 +241,42 @@ private:
   }
 
   void createRenderTarget(const gfx::Size& size) {
-    int scale = this->scale();
+    const int scale = this->scale();
     m_lastSize = size;
 
-    GrBackendRenderTargetDesc desc;
-    desc.fWidth = size.w;
-    desc.fHeight = size.h;
-    desc.fConfig = kSkia8888_GrPixelConfig;
-    desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
-    desc.fSampleCnt = m_glCtx->getSampleCount();
-    desc.fStencilBits = m_glCtx->getStencilBits();
-    desc.fRenderTargetHandle = 0; // direct frame buffer
+    GrGLint buffer;
+    m_glInterfaces->fFunctions.fGetIntegerv(GR_GL_FRAMEBUFFER_BINDING, &buffer);
+    GrGLFramebufferInfo info;
+    info.fFBOID = (GrGLuint)buffer;
+
+    GrBackendRenderTarget
+      target(size.w, size.h,
+             m_glCtx->getSampleCount(),
+             m_glCtx->getStencilBits(),
+             kSkia8888_GrPixelConfig,
+             info);
+
+    SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
 
     m_skSurface.reset(nullptr); // set m_skSurface comparing with the old m_skSurfaceDirect
     m_skSurfaceDirect = SkSurface::MakeFromBackendRenderTarget(
-      m_grCtx.get(), desc, nullptr);
+      m_grCtx.get(), target,
+      kBottomLeft_GrSurfaceOrigin,
+      nullptr, &props);
 
-    if (scale == 1) {
+    if (scale == 1 && m_skSurfaceDirect) {
+      LOG("OS: Using GL direct surface\n");
       m_skSurface = m_skSurfaceDirect;
     }
     else {
+      LOG("OS: Using double buffering\n");
       m_skSurface =
         SkSurface::MakeRenderTarget(
           m_grCtx.get(),
           SkBudgeted::kYes,
-          SkImageInfo::MakeN32Premul(MAX(1, size.w / scale),
-                                     MAX(1, size.h / scale)),
+          SkImageInfo::Make(MAX(1, size.w / scale),
+                            MAX(1, size.h / scale),
+                            kN32_SkColorType, kOpaque_SkAlphaType);
           m_glCtx->getSampleCount(),
           nullptr);
     }
@@ -296,16 +305,35 @@ private:
     SkiaSurface* surface = static_cast<SkiaSurface*>(m_display->getSurface());
     const SkBitmap& origBitmap = surface->bitmap();
 
-    // Create a subset to draw on the view
     SkBitmap bitmap;
-    if (!origBitmap.extractSubset(
-          &bitmap, SkIRect::MakeXYWH(rect.x/scale,
-                                     (viewBounds.size.height-(rect.y+rect.h))/scale,
-                                     rect.w/scale,
-                                     rect.h/scale)))
-      return;
+    if (scale == 1) {
+      // Create a subset to draw on the view
+      if (!origBitmap.extractSubset(
+            &bitmap, SkIRect::MakeXYWH(rect.x,
+                                       (viewBounds.size.height-(rect.y+rect.h)),
+                                       rect.w,
+                                       rect.h)))
+        return;
+    }
+    else {
+      // Create a bitmap to draw the original one scaled. This is
+      // faster than doing the scaling directly in
+      // CGContextDrawImage(). This avoid a slow path where the
+      // internal macOS argb32_image_mark_RGB32() function is called
+      // (which is a performance hit).
+      if (!bitmap.tryAllocN32Pixels(rect.w, rect.h, true))
+        return;
 
-    bitmap.lockPixels();
+      SkCanvas canvas(bitmap);
+      canvas.drawBitmapRect(origBitmap,
+                            SkIRect::MakeXYWH(rect.x/scale,
+                                              (viewBounds.size.height-(rect.y+rect.h))/scale,
+                                              rect.w/scale,
+                                              rect.h/scale),
+                            SkRect::MakeXYWH(0, 0, rect.w, rect.h),
+                            nullptr);
+    }
+
     @autoreleasepool {
       NSGraphicsContext* gc = [NSGraphicsContext currentContext];
       CGContextRef cg = (CGContextRef)[gc graphicsPort];
@@ -319,12 +347,22 @@ private:
         CGContextSaveGState(cg);
         CGContextSetInterpolationQuality(cg, kCGInterpolationNone);
         CGContextDrawImage(cg, r, img);
+#ifdef DEBUG_UPDATE_RECTS
+        {
+          static int i = 0;
+          i = (i+1) % 8;
+          CGContextSetRGBStrokeColor(cg,
+                                     (i & 1 ? 1.0f: 0.0f),
+                                     (i & 2 ? 1.0f: 0.0f),
+                                     (i & 4 ? 1.0f: 0.0f), 1.0f);
+          CGContextStrokeRectWithWidth(cg, r, 2.0f);
+        }
+#endif
         CGContextRestoreGState(cg);
         CGImageRelease(img);
       }
       CGColorSpaceRelease(colorSpace);
     }
-    bitmap.unlockPixels();
   }
 
   SkiaDisplay* m_display;
@@ -333,7 +371,7 @@ private:
   OSXWindow* m_window;
 #if SK_SUPPORT_GPU
   base::UniquePtr<GLContext> m_glCtx;
-  SkAutoTUnref<const GrGLInterface> m_glInterfaces;
+  sk_sp<const GrGLInterface> m_glInterfaces;
   NSOpenGLContext* m_nsGL;
   sk_sp<GrContext> m_grCtx;
   sk_sp<SkSurface> m_skSurfaceDirect;

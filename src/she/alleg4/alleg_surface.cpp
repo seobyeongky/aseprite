@@ -83,6 +83,7 @@ Alleg4Surface::Alleg4Surface(BITMAP* bmp, DestroyFlag destroy)
   , m_destroy(destroy)
   , m_lock(0)
 {
+  saveClip();
 }
 
 Alleg4Surface::Alleg4Surface(int width, int height, DestroyFlag destroy)
@@ -90,6 +91,7 @@ Alleg4Surface::Alleg4Surface(int width, int height, DestroyFlag destroy)
   , m_destroy(destroy)
   , m_lock(0)
 {
+  saveClip();
 }
 
 Alleg4Surface::Alleg4Surface(int width, int height, int bpp, DestroyFlag destroy)
@@ -97,6 +99,7 @@ Alleg4Surface::Alleg4Surface(int width, int height, int bpp, DestroyFlag destroy
   , m_destroy(destroy)
   , m_lock(0)
 {
+  saveClip();
 }
 
 Alleg4Surface::~Alleg4Surface()
@@ -131,7 +134,12 @@ bool Alleg4Surface::isDirectToScreen() const
   return m_bmp == screen;
 }
 
-gfx::Rect Alleg4Surface::getClipBounds()
+int Alleg4Surface::getSaveCount() const
+{
+  return int(m_clipStack.size());
+}
+
+gfx::Rect Alleg4Surface::getClipBounds() const
 {
   return gfx::Rect(
     m_bmp->cl,
@@ -140,8 +148,18 @@ gfx::Rect Alleg4Surface::getClipBounds()
     m_bmp->cb - m_bmp->ct);
 }
 
-void Alleg4Surface::setClipBounds(const gfx::Rect& rc)
+void Alleg4Surface::saveClip()
 {
+  m_clipStack.push_back(getClipBounds());
+}
+
+void Alleg4Surface::restoreClip()
+{
+  ASSERT(!m_clipStack.empty());
+
+  gfx::Rect rc = m_clipStack.back();
+  m_clipStack.pop_back();
+
   set_clip_rect(m_bmp,
                 rc.x,
                 rc.y,
@@ -149,7 +167,7 @@ void Alleg4Surface::setClipBounds(const gfx::Rect& rc)
                 rc.y+rc.h-1);
 }
 
-bool Alleg4Surface::intersectClipRect(const gfx::Rect& rc)
+bool Alleg4Surface::clipRect(const gfx::Rect& rc)
 {
   add_clip_rect(m_bmp,
                 rc.x,
@@ -390,6 +408,9 @@ void Alleg4Surface::drawRgbaSurface(const Surface* src, int dstx, int dsty)
 
 void Alleg4Surface::drawRgbaSurface(const Surface* src, int srcx, int srcy, int dstx, int dsty, int w, int h)
 {
+  if (w < 1 || h < 1)
+    return;
+
   set_alpha_blender();
 
   BITMAP* tmp = create_sub_bitmap(

@@ -5,7 +5,7 @@
 // Read LICENSE.txt for more information.
 
 // Uncomment this to log how scancodes are generated
-//#define REPORT_KEYS
+#define KEY_TRACE(...)
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -55,7 +55,7 @@ static KeyScancode from_char_to_scancode(int chr)
     kKeyNil,        // 31 =1F = US
     kKeySpace,      // 32 =20 = Space
     kKeyNil,        // 33 =21 = !
-    kKeyQuote,      // 34 =22 = "
+    kKeyNil,        // 34 =22 = "
     kKeyNil,        // 35 =23 = #
     kKeyNil,        // 36 =24 = $
     kKeyNil,        // 37 =25 = %
@@ -79,7 +79,7 @@ static KeyScancode from_char_to_scancode(int chr)
     kKey7,          // 55 = 37 = 7
     kKey8,          // 56 = 38 = 8
     kKey9,          // 57 = 39 = 9
-    kKeyNil,        // 58 = 3A = :
+    kKeyColon,      // 58 = 3A = :
     kKeySemicolon,  // 59 = 3B = ;
     kKeyNil,        // 60 = 3C = <
     kKeyEquals,     // 61 = 3D = =
@@ -115,9 +115,9 @@ static KeyScancode from_char_to_scancode(int chr)
     kKeyOpenbrace,  // 91 = 5B = [
     kKeyBackslash,  // 92 = 5C = backslash
     kKeyClosebrace, // 93 = 5D = ]
-    kKeyNil,        // 94 = 5E = ^
+    kKeyCircumflex, // 94 = 5E = ^
     kKeyNil,        // 95 = 5F = _
-    kKeyNil,        // 96 = 60 = `
+    kKeyBackquote,  // 96 = 60 = `
     kKeyA,          // 97 = 61 = a
     kKeyB,          // 98 = 62 = b
     kKeyC,          // 99 = 63 = c
@@ -147,7 +147,7 @@ static KeyScancode from_char_to_scancode(int chr)
     kKeyOpenbrace,  // 123 = 7B = {
     kKeyBackslash,  // 124 = 7C = |
     kKeyClosebrace, // 125 = 7D = }
-    kKeyNil,        // 126 = 7E = ~
+    kKeyTilde,      // 126 = 7E = ~
     kKeyNil,        // 127 = 7F = DEL
   };
 
@@ -315,7 +315,7 @@ KeyScancode scancode_from_nsevent(NSEvent* event)
   // For keys that are not in the numpad we try to get the scancode
   // converting the first char in NSEvent.characters to a
   // scancode.
-  if ((event.modifierFlags & NSNumericPadKeyMask) == 0) {
+  if ((event.modifierFlags & NSEventModifierFlagNumericPad) == 0) {
     KeyScancode code;
 
     // It looks like getting the first "event.characters" char is the
@@ -332,10 +332,8 @@ KeyScancode scancode_from_nsevent(NSEvent* event)
       if (chr != 32) {
         code = from_char_to_scancode(chr);
         if (code != kKeyNil) {
-#ifdef REPORT_KEYS
-          TRACE("scancode_from_nsevent %d -> %d (characters)\n",
-                (int)chr, (int)code);
-#endif
+          KEY_TRACE("scancode_from_nsevent %d -> %d (characters)\n",
+                    (int)chr, (int)code);
           return code;
         }
       }
@@ -346,10 +344,8 @@ KeyScancode scancode_from_nsevent(NSEvent* event)
       int chr = [chars characterAtIndex:chars.length-1];
       code = from_char_to_scancode(chr);
       if (code != kKeyNil) {
-#ifdef REPORT_KEYS
-        TRACE("scancode_from_nsevent %d -> %d (charactersIgnoringModifiers)\n",
-              (int)chr, (int)code);
-#endif
+        KEY_TRACE("scancode_from_nsevent %d -> %d (charactersIgnoringModifiers)\n",
+                  (int)chr, (int)code);
         return code;
       }
     }
@@ -370,10 +366,8 @@ KeyScancode scancode_from_nsevent(NSEvent* event)
         UInt16 chr = CFStringGetCharacterAtIndex(strRef, length-1);
         code = from_char_to_scancode(chr);
         if (code != kKeyNil) {
-#ifdef REPORT_KEYS
-          TRACE("scancode_from_nsevent %d -> %d (get_unicode_from_key_code)\n",
-                (int)chr, (int)code);
-#endif
+          KEY_TRACE("scancode_from_nsevent %d -> %d (get_unicode_from_key_code)\n",
+                    (int)chr, (int)code);
         }
       }
 
@@ -386,10 +380,8 @@ KeyScancode scancode_from_nsevent(NSEvent* event)
 #endif
 
   KeyScancode code = from_keycode_to_scancode(event.keyCode);
-#ifdef REPORT_KEYS
-  TRACE("scancode_from_nsevent %d -> %d (keyCode)\n",
-        (int)event.keyCode, (int)code);
-#endif
+  KEY_TRACE("scancode_from_nsevent %d -> %d (keyCode)\n",
+            (int)event.keyCode, (int)code);
   return code;
 }
 

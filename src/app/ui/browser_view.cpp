@@ -13,6 +13,7 @@
 #include "app/resource_finder.h"
 #include "app/ui/browser_view.h"
 #include "app/ui/main_window.h"
+#include "app/ui/separator_in_view.h"
 #include "app/ui/skin/skin_theme.h"
 #include "app/ui/workspace.h"
 #include "base/file_handle.h"
@@ -80,8 +81,7 @@ public:
   obs::signal<void()> FileChange;
 
   CMarkBox() {
-    setBgColor(SkinTheme::instance()->colors.textboxFace());
-    setBorder(gfx::Border(4*guiscale()));
+    initTheme();
   }
 
   const std::string& file() {
@@ -249,6 +249,12 @@ private:
     }
 
     return Widget::onProcessMessage(msg);
+  }
+
+  void onInitTheme(InitThemeEvent& ev) override {
+    Widget::onInitTheme(ev);
+    setBgColor(SkinTheme::instance()->colors.textboxFace());
+    setBorder(gfx::Border(4*guiscale()));
   }
 
   void clear() {
@@ -427,8 +433,7 @@ private:
   }
 
   void addSeparator() {
-    auto sep = new Separator("", HORIZONTAL);
-    sep->setStyle(SkinTheme::instance()->styles.separatorInView());
+    auto sep = new SeparatorInView(std::string(), HORIZONTAL);
     sep->setBorder(gfx::Border(0, font()->height(), 0, font()->height()));
     sep->setExpansive(true);
     addChild(sep);
@@ -468,14 +473,22 @@ private:
 
   void addCodeBlock(const std::string& content) {
     auto textBox = new TextBox(content, LEFT);
-    textBox->setBorder(gfx::Border(4*guiscale()));
-    textBox->setBgColor(SkinTheme::instance()->colors.textboxCodeFace());
+    textBox->InitTheme.connect(
+      [textBox]{
+        textBox->setBgColor(SkinTheme::instance()->colors.textboxCodeFace());
+        textBox->setBorder(gfx::Border(4*guiscale()));
+      });
+    textBox->initTheme();
     addChild(textBox);
   }
 
   void addLink(const std::string& url, const std::string& text) {
     auto label = new LinkLabel(url, text);
-    label->setStyle(SkinTheme::instance()->styles.browserLink());
+    label->InitTheme.connect(
+      [label]{
+        label->setStyle(SkinTheme::instance()->styles.browserLink());
+      });
+    label->initTheme();
 
     if (url.find(':') == std::string::npos) {
       label->setUrl("");
@@ -510,13 +523,15 @@ private:
 BrowserView::BrowserView()
   : m_textBox(new CMarkBox)
 {
-  SkinTheme* theme = static_cast<SkinTheme*>(this->theme());
-
   addChild(&m_view);
 
   m_view.attachToView(m_textBox);
   m_view.setExpansive(true);
-  m_view.setStyle(theme->styles.workspaceView());
+  m_view.InitTheme.connect(
+    [this]{
+      m_view.setStyle(SkinTheme::instance()->styles.workspaceView());
+    });
+  m_view.initTheme();
 
   m_textBox->FileChange.connect(
     []{

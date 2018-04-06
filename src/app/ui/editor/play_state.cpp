@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -92,13 +92,13 @@ void PlayState::onEnterState(Editor* editor)
 
 EditorState::LeaveAction PlayState::onLeaveState(Editor* editor, EditorState* newState)
 {
+  // We don't stop the timer if we are going to the ScrollingState
+  // (we keep playing the animation).
   if (!m_toScroll) {
+    m_playTimer.stop();
+
     if (m_playOnce || Preferences::instance().general.rewindOnStop())
       m_editor->setFrame(m_refFrame);
-
-    // We don't stop the timer if we are going to the ScrollingState
-    // (we keep playing the animation).
-    m_playTimer.stop();
   }
   return KeepState;
 }
@@ -169,6 +169,8 @@ bool PlayState::onSetCursor(Editor* editor, const gfx::Point& mouseScreenPos)
 
 void PlayState::onPlaybackTick()
 {
+  ASSERT(m_playTimer.isRunning());
+
   if (m_nextFrameTime < 0)
     return;
 
@@ -210,7 +212,6 @@ void PlayState::onPlaybackTick()
 
     m_editor->setFrame(frame);
     m_nextFrameTime += getNextFrameTime();
-    m_editor->invalidate();
   }
 
   m_curFrameTick = base::current_tick();
@@ -236,9 +237,9 @@ void PlayState::onBeforeCommandExecution(CommandExecutionEvent& ev)
   //
   // There are other commands that just doesn't stop the animation
   // (zoom, scroll, etc.)
-  if (ev.command()->id() == CommandId::PlayAnimation ||
-      ev.command()->id() == CommandId::Zoom ||
-      ev.command()->id() == CommandId::Scroll) {
+  if (ev.command()->id() == CommandId::PlayAnimation() ||
+      ev.command()->id() == CommandId::Zoom() ||
+      ev.command()->id() == CommandId::Scroll()) {
     return;
   }
 

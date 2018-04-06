@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -28,14 +28,14 @@ const char* FileFormat::name() const
   return onGetName();
 }
 
-const char* FileFormat::extensions() const
+void FileFormat::getExtensions(base::paths& exts) const
 {
-  return onGetExtensions();
+  onGetExtensions(exts);
 }
 
-docio::FileFormat FileFormat::docioFormat() const
+dio::FileFormat FileFormat::dioFormat() const
 {
-  return onGetDocioFormat();
+  return onGetDioFormat();
 }
 
 bool FileFormat::load(FileOp* fop)

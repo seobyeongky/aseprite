@@ -64,7 +64,7 @@ MovingCelCollect::MovingCelCollect(Editor* editor, Layer* layer)
   }
 
   // Record start positions of all cels in selected range
-  for (Cel* cel : get_unique_cels(editor->sprite(), range2)) {
+  for (Cel* cel : get_unlocked_unique_cels(editor->sprite(), range2)) {
     Layer* layer = cel->layer();
     ASSERT(layer);
 
@@ -269,14 +269,27 @@ bool MovingCelState::onMouseMove(Editor* editor, MouseMessage* msg)
   return StandbyState::onMouseMove(editor, msg);
 }
 
+bool MovingCelState::onKeyDown(Editor* editor, KeyMessage* msg)
+{
+  // Do not call StandbyState::onKeyDown() so we don't start a
+  // straight line when we are moving the cel with Ctrl and Shift key
+  // is pressed.
+  //
+  // TODO maybe MovingCelState shouldn't be a StandbyState (the same
+  // for several other states)
+  return false;
+}
+
 bool MovingCelState::onUpdateStatusBar(Editor* editor)
 {
+  gfx::PointF pos = m_cursorStart - gfx::PointF(editor->mainTilePosition());
+
   if (m_hasReference) {
     if (m_scaled && m_cel) {
       StatusBar::instance()->setStatusText
         (0,
          ":pos: %.2f %.2f :offset: %.2f %.2f :size: %.2f%% %.2f%%",
-         m_cursorStart.x, m_cursorStart.y,
+         pos.x, pos.y,
          m_celOffset.x, m_celOffset.y,
          100.0*m_celScale.w*m_celMainSize.w/m_cel->image()->width(),
          100.0*m_celScale.h*m_celMainSize.h/m_cel->image()->height());
@@ -285,7 +298,7 @@ bool MovingCelState::onUpdateStatusBar(Editor* editor)
       StatusBar::instance()->setStatusText
         (0,
          ":pos: %.2f %.2f :offset: %.2f %.2f",
-         m_cursorStart.x, m_cursorStart.y,
+         pos.x, pos.y,
          m_celOffset.x, m_celOffset.y);
     }
   }
@@ -294,7 +307,7 @@ bool MovingCelState::onUpdateStatusBar(Editor* editor)
     StatusBar::instance()->setStatusText
       (0,
        ":pos: %3d %3d :offset: %3d %3d",
-       int(m_cursorStart.x), int(m_cursorStart.y),
+       int(pos.x), int(pos.y),
        intOffset.x, intOffset.y);
   }
 

@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2016  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -126,13 +126,13 @@ private:
     Params params;
     params.set("change", "custom");
     params.set("slot", base::convert_to<std::string>(m_slot).c_str());
-    Command* cmd = CommandsModule::instance()->getCommandByName(CommandId::ChangeBrush);
+    Command* cmd = Commands::instance()->byId(CommandId::ChangeBrush());
     cmd->loadParams(params);
     std::string search = cmd->friendlyName();
     if (!search.empty()) {
       params.clear();
       params.set("search", search.c_str());
-      cmd = CommandsModule::instance()->getCommandByName(CommandId::KeyboardShortcuts);
+      cmd = Commands::instance()->byId(CommandId::KeyboardShortcuts());
       ASSERT(cmd);
       if (cmd)
         UIContext::instance()->executeCommand(cmd, params);
@@ -337,9 +337,7 @@ BrushPopup::BrushPopup()
   auto& brushes = App::instance()->brushes();
 
   setAutoRemap(false);
-  setBorder(gfx::Border(2)*guiscale());
-  setChildSpacing(0);
-  m_box.noBorderNoChildSpacing();
+
   m_standardBrushes.setTriggerOnMouseUp(true);
 
   addChild(&m_box);
@@ -351,15 +349,24 @@ BrushPopup::BrushPopup()
   m_box.addChild(top);
   m_box.addChild(new Separator("", HORIZONTAL));
 
-  for (const auto& brush : brushes.getStandardBrushes())
+  for (const auto& brush : brushes.getStandardBrushes()) {
     m_standardBrushes.addItem(
       new SelectBrushItem(
-        BrushSlot(BrushSlot::Flags::BrushType, brush)));
-
+        BrushSlot(BrushSlot::Flags::BrushType, brush)))
+      ->setMono(true);
+  }
   m_standardBrushes.setTransparent(true);
-  m_standardBrushes.setBgColor(gfx::ColorNone);
 
   brushes.ItemsChange.connect(&BrushPopup::onBrushChanges, this);
+
+  InitTheme.connect(
+    [this]{
+      setBorder(gfx::Border(2)*guiscale());
+      setChildSpacing(0);
+      m_box.noBorderNoChildSpacing();
+      m_standardBrushes.setBgColor(gfx::ColorNone);
+    });
+  initTheme();
 }
 
 void BrushPopup::setBrush(Brush* brush)
@@ -404,7 +411,7 @@ void BrushPopup::regenerate(const gfx::Rect& box)
       params.set("change", "custom");
       params.set("slot", base::convert_to<std::string>(slot).c_str());
       Key* key = KeyboardShortcuts::instance()->command(
-        CommandId::ChangeBrush, params);
+        CommandId::ChangeBrush(), params);
       if (key && !key->accels().empty())
         shortcut = key->accels().front().toString();
     }

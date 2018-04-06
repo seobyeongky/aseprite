@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,11 +10,14 @@
 
 #include "app/commands/filters/filter_window.h"
 
-#include "base/bind.h"
 #include "app/commands/filters/filter_manager_impl.h"
 #include "app/commands/filters/filter_worker.h"
 #include "app/ini_file.h"
+#include "app/modules/editors.h"
 #include "app/modules/gui.h"
+#include "app/pref/preferences.h"
+#include "app/ui/editor/editor.h"
+#include "base/bind.h"
 
 namespace app {
 
@@ -45,7 +48,11 @@ FilterWindow::FilterWindow(const char* title, const char* cfgSection,
   if (m_tiledCheck)
     m_tiledCheck->processMnemonicFromText();
 
+  CelsTarget celsTarget = Preferences::instance().filters.celsTarget();
+  filterMgr->setCelsTarget(celsTarget);
+
   m_targetButton.setTarget(filterMgr->getTarget());
+  m_targetButton.setCelsTarget(celsTarget);
   m_targetButton.TargetChange.connect(&FilterWindow::onTargetButtonChange, this);
   m_okButton.Click.connect(&FilterWindow::onOk, this);
   m_cancelButton.Click.connect(&FilterWindow::onCancel, this);
@@ -85,6 +92,9 @@ FilterWindow::~FilterWindow()
 
   // Save "Preview" check status.
   set_config_bool(m_cfgSection, "Preview", m_showPreview.isSelected());
+
+  // Save cels target button
+  Preferences::instance().filters.celsTarget(m_targetButton.celsTarget());
 }
 
 bool FilterWindow::doModal()
@@ -106,7 +116,7 @@ bool FilterWindow::doModal()
 
   // Did the user press OK?
   if (closer() == &m_okButton) {
-    m_preview.stop();
+    stopPreview();
 
     // Apply the filter in background
     start_filter_worker(m_filterMgr);
@@ -121,8 +131,13 @@ bool FilterWindow::doModal()
 
 void FilterWindow::restartPreview()
 {
-  if (m_showPreview.isSelected())
+  bool state = m_showPreview.isSelected();
+  m_preview.setEnablePreview(state);
+
+  if (state)
     m_preview.restartPreview();
+  else
+    stopPreview();
 }
 
 void FilterWindow::setNewTarget(Target target)
@@ -146,6 +161,11 @@ void FilterWindow::onCancel(Event& ev)
 void FilterWindow::onShowPreview(Event& ev)
 {
   restartPreview();
+
+  // If the preview was disabled just redraw the current editor in its
+  // original state.
+  if (!m_showPreview.isSelected())
+    m_filterMgr->disablePreview();
 }
 
 // Called when the user changes the target-buttons.
@@ -154,7 +174,8 @@ void FilterWindow::onTargetButtonChange()
   stopPreview();
 
   // Change the targets in the filter manager and restart the filter preview.
-  m_filterMgr->setTarget(m_targetButton.getTarget());
+  m_filterMgr->setTarget(m_targetButton.target());
+  m_filterMgr->setCelsTarget(m_targetButton.celsTarget());
   restartPreview();
 }
 

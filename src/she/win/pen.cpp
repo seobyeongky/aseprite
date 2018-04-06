@@ -10,24 +10,30 @@
 
 #include "she/win/pen.h"
 
+#include "base/convert_to.h"
 #include "base/debug.h"
 #include "base/fs.h"
 #include "base/log.h"
+#include "base/sha1.h"
 #include "base/string.h"
 
 #include <iostream>
+
+namespace she {
+
+namespace {
 
 typedef UINT (API* WTInfoW_Func)(UINT, UINT, LPVOID);
 typedef HCTX (API* WTOpenW_Func)(HWND, LPLOGCONTEXTW, BOOL);
 typedef BOOL (API* WTClose_Func)(HCTX);
 typedef BOOL (API* WTPacket_Func)(HCTX, UINT, LPVOID);
 
-namespace she {
+WTInfoW_Func WTInfo;
+WTOpenW_Func WTOpen;
+WTClose_Func WTClose;
+WTPacket_Func WTPacket;
 
-static WTInfoW_Func WTInfo;
-static WTOpenW_Func WTOpen;
-static WTClose_Func WTClose;
-static WTPacket_Func WTPacket;
+} // anonymous namespace
 
 PenAPI::PenAPI()
   : m_wintabLib(nullptr)
@@ -107,12 +113,13 @@ HCTX PenAPI::open(HWND hwnd)
     return nullptr;
   }
 
-  LOG("PEN: Pen attached to display\n");
+  LOG("PEN: Pen attached to display, new context %p\n", ctx);
   return ctx;
 }
 
 void PenAPI::close(HCTX ctx)
 {
+  LOG("PEN: Closing context %p\n", ctx);
   if (ctx) {
     ASSERT(m_wintabLib);
     LOG("PEN: Pen detached from window\n");
@@ -135,6 +142,12 @@ bool PenAPI::loadWintab()
     return false;
   }
 
+  if (isBuggyDll()) {
+    base::unload_dll(m_wintabLib);
+    m_wintabLib = nullptr;
+    return false;
+  }
+
   WTInfo = base::get_dll_proc<WTInfoW_Func>(m_wintabLib, "WTInfoW");
   WTOpen = base::get_dll_proc<WTOpenW_Func>(m_wintabLib, "WTOpenW");
   WTClose = base::get_dll_proc<WTClose_Func>(m_wintabLib, "WTClose");
@@ -146,6 +159,27 @@ bool PenAPI::loadWintab()
 
   LOG("PEN: Wintab library loaded\n");
   return true;
+}
+
+bool PenAPI::isBuggyDll()
+{
+  ASSERT(m_wintabLib);
+
+  WCHAR wpath[MAX_PATH];
+  memset(wpath, 0, sizeof(wpath));
+  GetModuleFileNameW((HMODULE)m_wintabLib, wpath, sizeof(wpath) / sizeof(WCHAR));
+
+  // Ugly hack to bypass the buggy WALTOP International Corp .dll that
+  // hangs Aseprite completely when we call its WTInfo function.
+  std::string path = base::to_utf8(wpath);
+  if (base::is_file(path)) {
+    std::string checksum =
+      base::convert_to<std::string>(base::Sha1::calculateFromFile(path));
+    LOG("PEN: SHA1 <%s> of <%s>\n", checksum.c_str(), path.c_str());
+    if (checksum == "a3ba0d9c0f5d8b9f4070981b243a80579f8be105")
+      return true;
+  }
+  return false;
 }
 
 } // namespace she

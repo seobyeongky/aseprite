@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2001-2017  David Capello
+// Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -29,8 +29,10 @@ namespace app {
 
   class FileSelector : public app::gen::FileSelector {
   public:
-    FileSelector(FileSelectorType type, FileSelectorDelegate* delegate);
+    FileSelector(FileSelectorType type);
     ~FileSelector();
+
+    void setDefaultExtension(const std::string& extension);
 
     void goBack();
     void goForward();
@@ -40,8 +42,8 @@ namespace app {
     // Shows the dialog to select a file in the program.
     bool show(const std::string& title,
               const std::string& initialPath,
-              const std::string& showExtensions,
-              FileSelectorFiles& output);
+              const base::paths& extensions,
+              base::paths& output);
 
   private:
     void updateLocation();
@@ -56,23 +58,19 @@ namespace app {
     void onFileListFileSelected();
     void onFileListFileAccepted();
     void onFileListCurrentFolderChanged();
-    void onExtraOptions();
     std::string getSelectedExtension() const;
-    void updateExtraLabel();
 
     class ArrowNavigator;
     class CustomFileNameItem;
     class CustomFolderNameItem;
     class CustomFileNameEntry;
-    class ExtrasWindow;
+    class CustomFileExtensionItem;
 
     FileSelectorType m_type;
-    FileSelectorDelegate* m_delegate;
     std::string m_defExtension;
     CustomFileNameEntry* m_fileName;
     FileList* m_fileList;
     FileListView* m_fileView;
-    ExtrasWindow* m_extras;
 
     // If true the navigation_history isn't
     // modified if the current folder changes
